@@ -1,11 +1,12 @@
 var scene, camera, renderer;
 var container;
 
-var roads = parseXML("../data/Crossing8Course.xodr");
-//var roads = parseXML("../data/CrossingComplex8Course.xodr");	// lane lateral shift cause incontinious
+//var roads = parseXML("../data/Crossing8Course.xodr");
+var roads = parseXML("../data/CrossingComplex8Course.xodr");	// lane lateral shift cause incontinious
 //var roads = parseXML("../data/Roundabout8Course.xodr");		// error - taken as a rare case when spiral ends a geometry
 //var roads = parseXML("../data/CulDeSac.xodr");
 //var roads = parseXML("../data/Country.xodr");	// move towards upper right to see the roads
+//var roads = parseXML("../data/test.xodr");
 
 init();
 animate();
@@ -58,9 +59,7 @@ function init() {
 	/** draw reference line */
 	//drawRoads(roads);
 
-	createCubic(3.7500000000000000e+00,0,-5.5555555555555558e-03,8.2304526748971200e-05);
-
-	createClothoid(-6.7269896520425938e+00, 6.7269896522231525e+00, 5.4977871437736381e+00, 3.1746031746031744e+00, -0.0000000000000000e+00, -1.2698412698412698e-01);
+	createShape();
 }
 
 function animate() {
@@ -102,6 +101,7 @@ function parseXML(xmlFile) {
 			var geometryNode = geometryNodes[j];
 
 			roads[i].geometry[j] = {};
+			roads[i].geometry[j].s = parseFloat(geometryNode.getAttribute('s'));
 			roads[i].geometry[j].x = parseFloat(geometryNode.getAttribute('x'));
 			roads[i].geometry[j].y = parseFloat(geometryNode.getAttribute('y'));
 			roads[i].geometry[j].hdg = parseFloat(geometryNode.getAttribute('hdg'));
@@ -134,6 +134,7 @@ function parseXML(xmlFile) {
 			var laneSectionNode = laneSectionNodes[j];
 
 			roads[i].laneSection[j] = {};
+			roads[i].laneSection[j].s = parseFloat(laneSectionNode.getAttribute('s'));
 			roads[i].laneSection[j].singleSide = laneSectionNode.getAttribute('singleSide');
 			roads[i].laneSection[j].lane = [];
 
@@ -156,7 +157,7 @@ function parseXML(xmlFile) {
 				if (borderNodes.width) roads[i].laneSection[j].lane[k].border = [];
 
 				// 0+
-				var roadMakrNodes = laneNode.getElementsByTagName('roadMark');
+				var roadMarkNodes = laneNode.getElementsByTagName('roadMark');
 				roads[i].laneSection[j].lane[k].roadMark = [];		
 
 				// 0+ not allowed for center lane
@@ -211,9 +212,9 @@ function parseXML(xmlFile) {
 
 				// get Lane Roadmark 0+
 				// road mark's centerline is always positioned on the respective lane's outer border line
-				for (var l=0; l < roadMakrNodes.length; l++) {
+				for (var l=0; l < roadMarkNodes.length; l++) {
 
-					var roadMarkNode = roadMakrNodes[l];
+					var roadMarkNode = roadMarkNodes[l];
 
 					roads[i].laneSection[j].lane[k].roadMark[l] = {};
 					roads[i].laneSection[j].lane[k].roadMark[l].sOffset = parseFloat(roadMarkNode.getAttribute('sOffset'));
@@ -541,11 +542,11 @@ function createSpiralShape(v1, cpt1, v2, v3, cpt2, v4) {
 	return shape;
 }
 
-/*
+/*]
 * Draw road mark given the reference line geometry
 *
 * @Param oBorder the outer border line geometry of the lane, it's modified from geometry reference line
-* @Param roadMark roadMark to draw
+* @Param roadMark roadMark array of lane to draw
 * @Param oNextBorder the outer border line of the succeeding road, only for spiral
 * 	v1---------------------v2	 t
 *	|						|	/|\
@@ -553,11 +554,9 @@ function createSpiralShape(v1, cpt1, v2, v3, cpt2, v4) {
 *	|						|	 |______ s 
 *	v4---------------------v3			
 */
-function drawRoadMark(oBorder, roadMark, oNextBorder) {
+function drawRoadMark(oBorder, roadMarks, oNextBorder) {
 
-	if (!roadMark) return;
-
-	if (roadMark.type == 'none') return;
+	if (roadMarks.length == 0) return;
 
 	// raod mark color info
 	var colorMaterial = {};
@@ -568,66 +567,91 @@ function drawRoadMark(oBorder, roadMark, oNextBorder) {
 	colorMaterial.white = new THREE.MeshBasicMaterial({color: 0xFFFFFF});
 	colorMaterial.yellow = new THREE.MeshBasicMaterial({color: 0xFFFF00});
 
-	var x = oBorder.x;
-	var y = oBorder.y;
-	var hdg = oBorder.hdg;
-	var length = oBorder.length;
-	var type = oBorder.type;
-	var width = roadMark.width;
-	//var mType = roadMark.type;
-	
-	var v1 = new THREE.Vector2(x + width / 2 * Math.cos(hdg + Math.PI / 2), y + width / 2 * Math.sin(hdg + Math.PI / 2));
-	var v2, v3, v4;
-	var shape, mesh;
+	for (var i = 0; i < roadMarks.length; i++) {
+		
+		var roadMark = roadMarks[i];
 
-	// need to know the border geometry (shift of x, y) on which the roadMark is on
-	switch(type) {
+		if (roadMark.type == 'none') return;
 
-		case 'line':
-			v2 = new THREE.Vector2(v1.x + length * Math.cos(hdg), v1.y + length * Math.sin(hdg));
-			v3 = new THREE.Vector2(v2.x + width * Math.cos(hdg - Math.PI / 2), v2.y + width * Math.sin(hdg - Math.PI / 2));
-			v4 = new THREE.Vector2(v1.x + width * Math.cos(hdg - Math.PI / 2), v1.y + width * Math.sin(hdg - Math.PI / 2));
+		var width = roadMark.width;
+		//var height = roadMark.height;	// not used yet
+		var sOffset = roadMark.sOffset;
+		
+		var length = oBorder.length - sOffset;
+		var x, y, hdg;
+		var v1, v2, v3, v4;
+		var shape, mesh;
 
-			shape = createRectShape(v1, v2, v3, v4);
+		// get the corresponding oBorder's geometry start according to sOffset
+		switch(oBorder.type) {
 			
-			break;
+			case 'line':
+				hdg = oBorder.hdg;
+				x = oBorder.x + sOffset * Math.cos(hdg);
+				y = oBorder.y + sOffset * Math.sin(hdg);
+				
+				v1 = new THREE.Vector2(x + width / 2 * Math.cos(hdg + Math.PI / 2), y + width / 2 * Math.sin(hdg + Math.PI / 2));
+				v2 = new THREE.Vector2(v1.x + length * Math.cos(hdg), v1.y + length * Math.sin(hdg));
+				v3 = new THREE.Vector2(v2.x + width * Math.cos(hdg - Math.PI / 2), v2.y + width * Math.sin(hdg - Math.PI / 2));
+				v4 = new THREE.Vector2(v1.x + width * Math.cos(hdg - Math.PI / 2), v1.y + width * Math.sin(hdg - Math.PI / 2));
 
-		case 'spiral':
-
-			var curvStart = oBorder.spiral.curvStart;
+				shape = createRectShape(v1, v2, v3, v4);
+				
+				break;
 			
-			v2 = new THREE.Vector2(oNextBorder.x + width / 2 * Math.cos(oNextBorder.hdg + Math.PI / 2), oNextBorder.y + width / 2 * Math.sin(oNextBorder.hdg + Math.PI / 2));
-			v3 = new THREE.Vector2(v2.x + width * Math.cos(oNextBorder.hdg - Math.PI / 2), v2.y + width * Math.sin(oNextBorder.hdg - Math.PI / 2));
-			v4 = new THREE.Vector2(v1.x + width * Math.cos(hdg - Math.PI / 2), v1.y + width * Math.sin(hdg - Math.PI / 2));
+			case 'spiral':
+				if (sOffset > 0) { console.warn('roadMark error: Unable to handle offset at spiral yet'); return; }
 
-			var cpt1 = new THREE.Vector2(x + Math.cos(hdg), y + Math.sin(hdg));
-			var cpt2 = new THREE.Vector2(v4.x + Math.cos(hdg), v4.y + Math.sin(hdg));
+				var curvStart = oBorder.spiral.curvStart;
+				x = oBorder.x;
+				y = oBorder.y;
+				hdg = oBorder.hdg;
+
+				v1 = new THREE.Vector2(x + width / 2 * Math.cos(hdg + Math.PI / 2), y + width / 2 * Math.sin(hdg + Math.PI / 2));
+				v2 = new THREE.Vector2(oNextBorder.x + width / 2 * Math.cos(oNextBorder.hdg + Math.PI / 2), oNextBorder.y + width / 2 * Math.sin(oNextBorder.hdg + Math.PI / 2));
+				v3 = new THREE.Vector2(v2.x + width * Math.cos(oNextBorder.hdg - Math.PI / 2), v2.y + width * Math.sin(oNextBorder.hdg - Math.PI / 2));
+				v4 = new THREE.Vector2(v1.x + width * Math.cos(hdg - Math.PI / 2), v1.y + width * Math.sin(hdg - Math.PI / 2));
+
+				var cpt1 = new THREE.Vector2(x + Math.cos(hdg), y + Math.sin(hdg));
+				var cpt2 = new THREE.Vector2(v4.x + Math.cos(hdg), v4.y + Math.sin(hdg));
+
+				shape = createSpiralShape(v1, cpt1, v2, v3, cpt2, v4);
+
+				break;
 			
-			shape = createSpiralShape(v1, cpt1, v2, v3, cpt2, v4);
-			
-			break;
+			case 'arc':
 
-		case 'arc':
-			var curvature = oBorder.arc.curvature;
-			var radius = 1 / Math.abs(curvature);
-			var theta = length * curvature;
-			var rotation = hdg - Math.sign(curvature) * Math.PI / 2;
-			var center = new THREE.Vector2(x - radius * Math.cos(rotation), y - radius * Math.sin(rotation));
+				var curvature = oBorder.arc.curvature;
+				var radius = 1 / Math.abs(curvature);
+				var theta = sOffset * curvature;
+				var rotation = oBorder.hdg - Math.sign(curvature) * Math.PI / 2;
+				hdg = oBorder.hdg + theta;
 
-			v3 = new THREE.Vector2(x - radius * Math.cos(rotation) + (radius + Math.sign(curvature) * width / 2) * Math.cos(rotation + theta),
-									y - radius * Math.sin(rotation) + (radius + Math.sign(curvature) * width /2) * Math.sin(rotation + theta));
+				// get the start point first
+				x = oBorder.x - radius * Math.cos(rotation) + radius * Math.cos(rotation + theta);
+				y = oBorder.y - radius * Math.sin(rotation) + radius * Math.sin(rotation + theta);
 
-			shape = createArcShape(center, v1, v3, radius - Math.sign(curvature) * width / 2, radius + Math.sign(curvature) * width / 2, rotation, theta, Math.sign(curvature) > 0 ? false : true);
+				theta = length * curvature;
+				rotation = hdg - Math.sign(curvature) * Math.PI / 2;
 
-			break;
-	}
+				// calculate v1, v3, and center for the arc shape
+				v1 = new THREE.Vector2(x + width / 2 * Math.cos(hdg + Math.PI / 2), y + width / 2 * Math.sin(hdg + Math.PI / 2));
+				v3 = new THREE.Vector2(x - radius * Math.cos(rotation) + (radius + Math.sign(curvature) * width / 2) * Math.cos(rotation + theta),
+										y - radius * Math.sin(rotation) + (radius + Math.sign(curvature) * width /2) * Math.sin(rotation + theta));
+				var center = new THREE.Vector2(x - radius * Math.cos(rotation), y - radius * Math.sin(rotation));
 
-	try {
-		var mesh = new THREE.Mesh(new THREE.ShapeBufferGeometry(shape), colorMaterial[roadMark.color]);
-		scene.add(mesh);
-	} catch(e) {
-		console.info(type)
-		console.info(oBorder, roadMark, shape)
+				shape = createArcShape(center, v1, v3, radius - Math.sign(curvature) * width / 2, radius + Math.sign(curvature) * width / 2, rotation, theta, Math.sign(curvature) > 0 ? false : true);
+				
+				break;
+		}
+
+		try {
+			var mesh = new THREE.Mesh(new THREE.ShapeBufferGeometry(shape), colorMaterial[roadMark.color]);
+			scene.add(mesh);
+		} catch(e) {
+			console.info(oBorder.type)
+			console.error(e.stack)
+		}
 	}
 }
 
@@ -662,7 +686,7 @@ function paveLane(geometry, lane, nextGeometry) {
 	
 	if (lane.id == 0) {
 		// width and border is not allowed for center lane. center lane only needs to draw the mark and set offset
-		drawRoadMark(geometry, lane.roadMark[0], nextGeometry);
+		drawRoadMark(geometry, lane.roadMark, nextGeometry);
 		return;
 	} else {
 		var width = lane.width[0].a;
@@ -694,6 +718,8 @@ function paveLane(geometry, lane, nextGeometry) {
 				var cpt1 = new THREE.Vector2(x + Math.cos(hdg), y + Math.sin(hdg));
 				var oCurvStart = geometry.spiral.curvStart / (1 - width * Math.abs(geometry.spiral.curvStart) * Math.sign(lane.id) * Math.sign(geometry.spiral.curvStart));
 				var cpt2 = new THREE.Vector2(v4.x + Math.cos(hdg), v4.y + Math.sin(hdg));
+
+				console.log(v1, v2, v3, v4, geometry, nextGeometry)
 				shape = createSpiralShape(v1, cpt1, v2, v3, cpt2, v4);
 				break;
 			case 'arc':
@@ -750,9 +776,12 @@ function paveLane(geometry, lane, nextGeometry) {
 		oBorder.arc.curvature = Math.sign(geometry.arc.curvature) / (r - width * Math.sign(lane.id) * Math.sign(geometry.arc.curvature));
 	}
 	
-	drawRoadMark(oBorder, lane.roadMark[0], oNextBorder);
+	drawRoadMark(oBorder, lane.roadMark, oNextBorder);
 }
 
+/*
+* Helper for paveLaneSection
+*/
 function compareLane(laneA, laneB) {
 
 	// a < b by some ordering criterion
@@ -768,12 +797,105 @@ function compareLane(laneA, laneB) {
 }
 
 /*
+* Helper for paveLaneSection
+*
+* Given the start position of a lane section along a road, return the geometry of the road starting from that position
+* to the next lane section's start position if any
+* @Param road the road as the reference corodinate system
+* @Param laneSectionId
+* @return geometries an array of geometries starting from position s to the end of the road
+*/ 
+function findGeometry(road, laneSectionId) {
+
+	var geometries  = [];
+	var found = false;
+	var s = road.laneSection[laneSectionId].s;
+	var nextS = road.laneSection[laneSectionId + 1] ? road.laneSection[laneSectionId + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
+
+	for (var i = 0; i < road.geometry.length; i++) {
+		var geometry = road.geometry[i];
+//console.log('geometry ' + i + ' already found? ' + found + ' s = ' + s + ' until next s = ' + nextS);
+		// if already found the start of the returning geometry, copy the rest of the geometries as the suceeding ones until the next lane section starts
+		if (found) {
+			if (geometry.s + geometry.length <= nextS) {
+				geometries.push(road.geometry[i]);
+			} else if (geometry.s < nextS) {
+				var newGeometry = {};
+				newGeometry.x = geometry.x;
+				newGeometry.y = geometry.y;
+				newGeometry.hdg = geometry.hdg;
+				newGeometry.type = geometry.type;
+				newGeometry.length = nextS - geometry.s;
+				geometries.push(newGeometry);
+			} else {
+				break;
+			}
+		}
+
+		// found the geometry segment which contains the starting position
+		if (!found) {
+			if (geometry.s == s) {
+				// s is the start of a geometry segment of the road, push the whole geometry seg if nextS is not convered by the same geometry
+				if (geometry.s + geometry.length <= nextS) {
+					geometries.push(geometry);
+				} else {
+					var newGeometry = {};
+					newGeometry.x = geometry.x;
+					newGeometry.y = geometry.y;
+					newGeometry.hdg = geometry.hdg;
+					newGeometry.type = geometry.type;
+					newGeometry.length = nextS - geometry.s;
+					geometries.push(newGeometry);
+				}
+				found = true;
+			} else if (geometry.s < s && geometry.s + geometry.length > s) {
+				// calcuate the first goemetry element for the returning geometries
+				var ds = s - geometry.s;
+				var partialGeometry = {};
+				partialGeometry.s = s;
+				partialGeometry.type = geometry.type;
+				partialGeometry.length = geometry.length + geometry.s - s;
+
+				switch(geometry.type) {
+					case 'line':
+						partialGeometry.x = geometry.x + ds * Math.cos(geometry.hdg);
+						partialGeometry.y = geometry.y + ds * Math.sin(geometry.hdg);
+						partialGeometry.hdg = geometry.hdg;
+						geometries.push(partialGeometry);
+						break;
+					case 'spiral':
+						// need the equation presentation for clothoid
+						break;
+					case 'arc':
+						var curvature = geometry.arc.curvature;
+						var radius = 1 / Math.abs(curvature);
+						var theta = ds * curvature;
+						var rotation = geometry.hdg - Math.sign(curvature) * Math.PI / 2;
+						partialGeometry.x = geometry.x - radius * Math.cos(rotation) + radius * Math.cos(rotation + theta);
+						partialGeometry.y = geometry.y - radius * Math.sin(rotation) + radius * Math.sin(rotation + theta);
+						partialGeometry.hdg = geometry.hdg + theta;
+						partialGeometry.arc = {};
+						partialGeometry.arc.curvature = geometry.arc.curvature;
+						break;
+				}
+				found = true;
+			}
+		}
+	}
+
+	return geometries;
+}
+
+/*
 * NOTE: Won't work if any lane offset exists, the whole mapping will be messed up between geometries of all roads 
 * need to change the datastructure!
+*
+* Per lane section, the number of lanes is constant. However, the properties of each lane (e.g. width,
+* road marks, friction etc.) may change
 */
 function paveLaneSection(road, laneSectionId) {
 
-	// split lanes into two (or three?) groups: left, rightm, sorted by absoluate value of lane.id in ascending order (-1 -> -n) (1->m)
+	// split lanes into two (or three?) groups: left, right, sorted by absoluate value of lane.id in ascending order (-1 -> -n) (1->m)
 	var lanes = road.laneSection[laneSectionId].lane;
 	var centralLane, leftLanes = [], rightLanes = [];
 
@@ -791,7 +913,9 @@ function paveLaneSection(road, laneSectionId) {
 	leftLanes.sort(compareLane);
 	rightLanes.sort(compareLane);
 
-	var geometries = road.geometry;
+	// accroding to the start postion relative to the road entry, determine from which point on the geometry will be used 
+	var start = road.laneSection[laneSectionId].s;
+	var geometries = findGeometry(road, laneSectionId);
 	var leftLaneInnerGeometries = [];
 	var rightLaneInnerGeometries = [];
 
@@ -799,7 +923,7 @@ function paveLaneSection(road, laneSectionId) {
 	for (var i = 0; i < geometries.length; i++) {
 
 		// get inner border geometry for each lane per geometry
-		/* NOTE: need to find the relation between laneSection and road geometry! PLUS lane.width's array corresponds to laneSetion?
+		/* NOTE: need to find the relation between laneSection and road geometry! PLUS lane.width's array corresponds to laneSection?
 		*  Assume only one lane section per road (geometry) for INITIAL IMPLEMENTATION and only one width segments provided uniform width throughout the roads
 		*  Question? when multiple lane sections are defined?
 		*/
@@ -838,7 +962,7 @@ function paveLaneSection(road, laneSectionId) {
 			// lane.id > 1
 			if (j > 0) {
 				var preInnerGeometry = leftLaneInnerGeometry[j - 1];
-				var width = leftLanes[j - 1].width[laneSectionId].a;
+				var width = leftLanes[j - 1].width[0].a;
 				
 				innerGeometry.x = preInnerGeometry.x + width * Math.cos(innerGeometry.hdg + Math.PI / 2);
 				innerGeometry.y = preInnerGeometry.y + width * Math.sin(innerGeometry.hdg + Math.PI / 2);
@@ -904,7 +1028,7 @@ function paveLaneSection(road, laneSectionId) {
 			// lane.id < -1
 			if (j > 0) {
 				var preInnerGeometry = rightLaneInnerGeometry[j - 1];
-				var width = rightLanes[j - 1].width[laneSectionId].a;
+				var width = rightLanes[j - 1].width[0].a;
 
 				innerGeometry.x = preInnerGeometry.x + width * Math.cos(innerGeometry.hdg - Math.PI / 2);
 				innerGeometry.y = preInnerGeometry.y + width * Math.sin(innerGeometry.hdg - Math.PI / 2);
@@ -953,7 +1077,7 @@ function paveLaneSection(road, laneSectionId) {
 
 		// left Lanes
 		for (var j = 0; j < leftLanes.length; j++) {
-//if (i == 0 && j == 1) {
+//if (i == 9 && j == 0) {
 			try {
 				if (geometry.type == 'spiral') {
 					paveLane(left[j], leftLanes[j], nextleft[j]);
@@ -962,12 +1086,14 @@ function paveLaneSection(road, laneSectionId) {
 				}	
 			} catch(e) {
 				console.info('paving error: road#' + road.id + ' laneSection#' + laneSectionId + ' geometry#' + i + ' lane#' + leftLanes[j].id);
+				console.error(e.stack)
 			}
 //}
 		}
 
 		// right Lanes
 		for (var j = 0; j < rightLanes.length; j++) {
+
 			try {
 				if (geometry.type == 'spiral') {
 					paveLane(right[j], rightLanes[j], nextright[j]);
@@ -976,6 +1102,7 @@ function paveLaneSection(road, laneSectionId) {
 				}	
 			} catch(e) {
 				console.info('paving error: road#' + road.id + ' laneSection#' + laneSectionId + ' geometry#' + i + ' lane#' + rightLanes[j].id);
+				console.error(e.stack);
 			}
 		}
 
@@ -984,7 +1111,7 @@ function paveLaneSection(road, laneSectionId) {
 			paveLane(geometry, centralLane, geometries[i + 1]);
 		} catch(e) {
 			console.info('paving error: road#' + road.id + ' laneSection#' + laneSectionId + ' geometry#' + i + ' lane#' + centralLane.id);
-			console.info(e.message)
+			console.error(e.stack)
 		}
 	}
 }
@@ -996,7 +1123,7 @@ function paveRoad(road) {
 			paveLaneSection(road, i);
 		} catch(e) {
 			console.info('paving error: road#' + road.id + ' laneSection#' + i);
-			//console.error(e.message + '\n');
+			console.error(e.message + '\n' + e.stack);
 		}
 	}
 
@@ -1010,30 +1137,37 @@ function paveRoad(road) {
 function paveRoads(roads) {
 
 	for (var i = 0; i < roads.length; i++) {
-		if (roads[i].id == '500')
+		if (roads[i].id == '76')
 		paveRoad(roads[i]);
 	}
 }
 
 function createShape() {
 
-	var v1 = new THREE.Vector2(-2.273817737823467, -7.770521445709069);
-	var v2 = new THREE.Vector2(2.2738183376964645, -7.77052144574286);
-	var v3 = new THREE.Vector2(2.0808883223692067, -8.06254543308949);
-	var v4 = new THREE.Vector2(-2.080887722500549, -8.062545433058565);
+	var v1 = new THREE.Vector2(0.72668220241064, 4.2299652409319);
+	var v2 = new THREE.Vector2(1.44657944078483, 4.2404412513254);
+	var v3 = new THREE.Vector2(1.5731221565698, 0.49257693399994);
+	var v4 = new THREE.Vector2(0.7452488704872, 0.4800112040354);
 
-	var hdg = 0.5838360570660069;
-	var length = 4.816647470855858;
-	var curvature = -0.24242424242424243;
+	var hdg = 0.004951131715490442;
+	var hdg2 = 0.03375113171549042;
+	var length = 0.72;
+	var curvStart = 0;
+	var curvature = 0.08;
+
 	var radius = 1 / Math.abs(curvature);
 	var theta = length * curvature;
 	var rotation = hdg - Math.sign(curvature) * Math.PI / 2;
 	var center = new THREE.Vector2(v1.x - radius * Math.cos(rotation), v1.y - radius * Math.sin(rotation));
-	var width = 0.35;
+	var width = 3.75;
 	var isClockwise =  Math.sign(curvature) > 0 ? false : true;
 
-	var arcShape = new THREE.Shape();
-	arcShape.absarc(center.x, center.y, radius, rotation, rotation + theta, isClockwise);
+	var cpt1 = new THREE.Vector2(v1.x + Math.cos(hdg), v1.y + Math.sin(hdg));
+	var cpt2 = new THREE.Vector2(v4.x + Math.cos(hdg), v4.y + Math.sin(hdg));
+	var spiralShape = new THREE.Shape();
+	spiralShape.moveTo(v1.x, v1.y);
+	spiralShape.quadraticCurveTo(cpt1.x, cpt1.y, v2.x, v2.y);
+	spiralShape.lineTo(v3.x, v3.y)
 
 	var rectShape = new THREE.Shape();
 	rectShape.moveTo(v1.x, v1.y);
@@ -1047,19 +1181,12 @@ function createShape() {
 	shape.absarc(center.x, center.y, radius, rotation, rotation + theta, isClockwise);
 	shape.lineTo(v3.x, v3.y);
 	shape.absarc(center.x, center.y, radius + Math.sign(curvature) * width, rotation + theta, rotation, !isClockwise)
-//	shape.lineTo(v1.x, v1.y)
-//	shape = new THREE.Shape();
-//	shape.absarc(center.x, center.y, radius + Math.sign(curvature) * width, rotation, rotation + theta, isClockwise)
-
-	var geometry = new THREE.ShapeBufferGeometry(arcShape);
-	var mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color: 0xFF0000}));
-	scene.add(mesh)
 
 	geometry = new THREE.ShapeBufferGeometry(rectShape)
 	mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color: 0x00FF00}));
 	scene.add(mesh)
 
-	geometry = new THREE.ShapeBufferGeometry(shape)
-	mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color: 0x0000FF}));
+	var geometry = new THREE.ShapeBufferGeometry(spiralShape);
+	var mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color: 0x000000}));
 	scene.add(mesh)
 }
