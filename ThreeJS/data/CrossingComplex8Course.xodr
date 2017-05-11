@@ -1235,7 +1235,7 @@
             <laneOffset s="2.5000000000000000e+01" a="-1.8750000000000000e+00" b="0.0000000000000000e+00" c="2.5464010864644634e-03" d="-3.6119164347013670e-05"/>
             <laneOffset s="7.2000000000000000e+01" a="0.0000000000000000e+00" b="0.0000000000000000e+00" c="0.0000000000000000e+00" d="0.0000000000000000e+00"/>
             <laneSection s="0.0000000000000000e+00">
-                <left><!--
+                <left>
                     <lane id="7" type="none" level= "false">
                         <link>
                             <successor id="-4"/>
@@ -1295,7 +1295,7 @@
                         <roadMark sOffset="9.0000000000000000e+00" type="broken" weight="standard" color="standard" width="1.3000000000000000e-01" laneChange="both"/>
                         <roadMark sOffset="5.2000000000000000e+01" type="none" weight="standard" color="standard" width="1.3000000000000000e-01" laneChange="both"/>
                         <material sOffset="0.0000000000000000e+00" surface="0" friction="0.0000000000000000e+00" roughness="0.0000000000000000e+00"/>
-                    </lane>-->
+                    </lane>
                     <lane id="1" type="restricted" level= "false">
                         <link>
                         </link>
@@ -1316,7 +1316,7 @@
                         <roadMark sOffset="7.2000000000000000e+01" type="broken" weight="standard" color="standard" width="1.3000000000000000e-01" laneChange="both"/>
                     </lane>
                 </center>
-                <right><!--
+                <right>
                     <lane id="-1" type="driving" level= "false">
                         <link>
                             <successor id="1"/>
@@ -1354,7 +1354,7 @@
                         <roadMark sOffset="0.0000000000000000e+00" type="none" weight="standard" color="standard" width="1.3000000000000000e-01" laneChange="both"/>
                         <material sOffset="0.0000000000000000e+00" surface="0" friction="0.0000000000000000e+00" roughness="0.0000000000000000e+00"/>
                         <height sOffset="0.0000000000000000e+00" inner="1.2000000000000000e-01" outer="1.2000000000000000e-01"/>
-                    </lane>-->
+                    </lane>
                 </right>
             </laneSection>
         </lanes>
