@@ -2,7 +2,7 @@
 <OpenDRIVE>
     <header revMajor="1" revMinor="1" name="" version="1.00" date="Tue Mar 11 08:53:30 2014" north="0.0000000000000000e+00" south="0.0000000000000000e+00" east="0.0000000000000000e+00" west="0.0000000000000000e+00" maxRoad="3" maxJunc="0" maxPrg="0">
     </header>
-    <road name="" length="1.0+01" id="1">
+    <road name="" length="1.5E+01" id="1" junction="-1">
         <link>
             
         </link>
