@@ -1214,9 +1214,9 @@ function preProcessing(roads) {
 		// and end position for each sub-devided geometry
 		for (var j=0; j < road.geometry.length; j++) {
 			var geometry = road.geometry[j];
-			var endPosition = getGeoemtryEndPosition(roads, id, j);
-			geometry.ex = endPosition.x;
-			geometry.ey = endPosition.y;
+			var endPosition = getGeometryEndPosition(roads, id, j);
+			geometry.ex = endPosition.ex;
+			geometry.ey = endPosition.ey;
 			geometry.centralX = geometry.x;
 			geometry.centralY = geometry.y;
 		}
@@ -1230,7 +1230,7 @@ function preProcessing(roads) {
 * @Param geometryId the index of current geometry in the road.geometry array
 * @Return {ex, ey} the actual end position in x-y plane
 */
-function getGeoemtryEndPosition(roads, roadId, geometryId) {
+function getGeometryEndPosition(roads, roadId, geometryId) {
 
 	var ex = null;
 	var ey = null;
@@ -1554,6 +1554,9 @@ function getCrossfall(road, s, es) {
 		}
 
 		if (!found) {
+			if (nextCrossfallS <= s) {
+				continue;
+			}
 			if (crossfall.s == s) {
 				crossfalls.push(crossfall);
 			} else if (crossfall.s < s && nextCrossfallS > s) {
@@ -1602,6 +1605,9 @@ function getSuperElevation(road, s, es) {
 		}
 
 		if (!found) {
+			if (nextSupserElevationS <= s) {
+				continue;
+			}
 			if (superelevation.s == s) {
 				superelevations.push(superelevation);
 			} else if (superelevation.s < s && nextSupserElevationS > s) {
@@ -1648,6 +1654,9 @@ function getElevation(road, s, es) {
 		}
 
 		if (!found) {
+			if (nextElevationS <= s) {
+				continue;
+			}
 			if (elevation.s == s) {
 				elevations.push(elevation);
 			} else if (elevation.s < s && nextElevationS > s) {
@@ -2160,8 +2169,8 @@ function createArcShape(center, v1, v3, iRadius, oRadius, rotation, theta, isClo
 
 function drawCustomLine(points, color, zOffset) {
 
-	var path = new THREE.Path(points);
-	var geometry = path.createPointsGeometry(points.length);
+	var geometry = new THREE.Geometry();
+	geometry.vertices = points;
 	var material = new THREE.MeshBasicMaterial({color: color != undefined ? color : 0x00FF00});
 	var mesh = new THREE.Line(geometry, material);
 	mesh.position.set(0, 0, zOffset || 0)
@@ -2776,13 +2785,14 @@ function animate() {
 
 function test() {
 	var map;
-	map = new Map(scene, "../data/Crossing8Course.xodr");
+	//map = new Map(scene, "../data/Crossing8Course.xodr");
 	//map = new Map(scene, "../data/CrossingComplex8Course.xodr");
-	//map = new Map(scene, "../data/Roundabout8Course.xodr");
+	map = new Map(scene, "../data/Roundabout8Course.xodr");
 	//map = new Map(scene, "../data/CulDeSac.xodr");
 	//map = new Map(scene, "../data/Country.xodr");	// multiple width on Arc
 	//map = new Map(scene, "../data/test.xodr");
 
-	map.paveAllRoads()
+	//map.paveAllRoads()
 	//map.showReferenceLine();
+	map.paveRoadsByIds(['103'])
 }
