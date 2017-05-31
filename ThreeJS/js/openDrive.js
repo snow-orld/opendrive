@@ -5,7 +5,7 @@ var Map = function (scene, file) {
 	
 	this.scene = scene;
 	this.roads = {};
-	this.mesh = {};
+	this.mesh = {road: {}, signal: {}};
 
 	if (file) {
 		this.generateFrom(file);
@@ -41,6 +41,10 @@ Map.prototype.parseFromXML = function(xmlFile) {
 	// road records 1+
 	var roadNodes = xmlDoc.getElementsByTagName('road');
 	var roads = {};
+
+	// signals are defined per road, but store them separately for controllers (controllers' control refer to signalId), 
+	// id may be duplicate in different roads, reassemble signalId as roadId.signalId if no name is given
+	var signals = {};
 
 	for ( var i=0 ; i < roadNodes.length; i++ )
 	{
@@ -214,7 +218,7 @@ Map.prototype.parseFromXML = function(xmlFile) {
 
 			roads[id].laneSection[j] = {};
 			roads[id].laneSection[j].s = parseFloat(laneSectionNode.getAttribute('s'));
-			roads[id].laneSection[j].singleSide = laneSectionNode.getAttribute('singleSide');
+			roads[id].laneSection[j].singleSide = laneSectionNode.getAttribute('singleSide') || "false";
 			roads[id].laneSection[j].lane = [];
 
 			var laneNodes = laneSectionNode.getElementsByTagName('lane');
@@ -370,9 +374,9 @@ Map.prototype.parseFromXML = function(xmlFile) {
 					var heightNode = heightNodes[l];
 
 					roads[id].laneSection[j].lane[k].height[l] = {};
-					roads[id].laneSection[j].lane[k].height[l].sOffset = heightNode.getAttribute('sOffset');
-					roads[id].laneSection[j].lane[k].height[l].inner = heightNode.getAttribute('inner');
-					roads[id].laneSection[j].lane[k].height[l].outer = heightNode.getAttribute('outer');
+					roads[id].laneSection[j].lane[k].height[l].sOffset = parseFloat(heightNode.getAttribute('sOffset'));
+					roads[id].laneSection[j].lane[k].height[l].inner = parseFloat(heightNode.getAttribute('inner') || 0);
+					roads[id].laneSection[j].lane[k].height[l].outer = parseFloat(heightNode.getAttribute('outer') || 0);
 				}
 
 				// get Lane Rule Record 0+ - not allowed for center lane (laneId=0)
@@ -386,6 +390,105 @@ Map.prototype.parseFromXML = function(xmlFile) {
 				}
 			}
 		}
+
+		// signal 0+
+		// NOTE: signal's data structure may need to be extended to work with outside signal system's definition!
+		// For example, type - mesh
+		var signalNodes = roadNode.getElementsByTagName('signal');
+		if (signalNodes.length) roads[id].signal = [];
+
+		for (var j=0; j < signalNodes.length; j++) {
+
+			var signalNode = signalNodes[j];
+			// road may contain a signalId the same as one in another road (but shouldn't), re-assemble signalId as roadId.signalId if no name entry provided
+			var signalId = signalNode.id;
+			var name = signalNode.getAttribute('name');
+			if (name.trim() == "") signalId = id + '.' + signalId;
+
+			// road only refer to signal id
+			roads[id].signal.push(signalId);
+
+			signals[signalId] = {};
+			signals[signalId].name = name;
+			signals[signalId].id = signalId;
+			signals[signalId].road = id;
+			signals[signalId].s = parseFloat(signalNode.getAttribute('s'));
+			signals[signalId].t = parseFloat(signalNode.getAttribute('t'));
+			signals[signalId].dynamic = signalNode.getAttribute('dynamic');	// yes / no
+			signals[signalId].orientation = signalNode.getAttribute('orientation');	// + / - / none
+			signals[signalId].zOffset = parseFloat(signalNode.getAttribute('zOffset'));
+			signals[signalId].country = signalNode.getAttribute('country');
+			signals[signalId].type = signalNode.getAttribute('type');
+			signals[signalId].subtype = signalNode.getAttribute('subtype');
+			signals[signalId].value = parseFloat(signalNode.getAttribute('value'));
+			if (signalNode.getAttribute('unit'))
+				signals[signalId].unit = signalNode.getAttribute('unit');	// optional
+			if (signalNode.getAttribute('height'))
+				signals[signalId].height = parseFloat(signalNode.getAttribute('height'));
+			if (signalNode.getAttribute('width'))
+				signals[signalId].width = parseFloat(signalNode.getAttribute('width'));
+			if (signalNode.getAttribute('text'))
+				signals[signalId].text = signalNode.getAttribute('text');
+			if (signalNode.getAttribute('hOffset'))
+				signals[signalId].hOffset = parseFloat(signalNode.getAttribute('hOffset')); // heading offset from orientation
+			if (signalNode.getAttribute('pitch'))
+				signals[signalId].pitch = parseFloat(signalNode.getAttribute('pitch'));
+			if (signalNode.getAttribute('roll'))
+				signals[signalId].roll = parseFloat(signalNode.getAttribute('roll'));
+
+			// lane validity records 0+
+			var validityNodes = signalNode.getElementsByTagName('validity');
+			if (validityNodes.length) signals[signalId].validity = [];
+			for (var k=0; k < validityNodes.length; k++) {
+
+				var validityNode = validityNodes[k];
+
+				signals[signalId].validity[k] = {};
+				signals[signalId].validity[k].fromLane = parseInt(validityNode.getAttribute('fromLane'));
+				signals[signalId].validity[k].toLane = parseInt(validityNode.getAttribute('toLane'));
+			}
+
+			// signal dependency records 0+
+			var dependencyNodes = signalNode.getElementsByTagName('dependency');
+			if (dependencyNodes.length) signals[signalId].dependency = {};
+			for (var k=0; k < dependencyNodes.length; k++) {
+
+				var dependencyNode = dependencyNodes[k];
+				var controlledSignalId = dependencyNode.id;
+
+				signals[signalId].dependency[controlledSignalId] = {};
+				signals[signalId].dependency[controlledSignalId].id = controlledSignalId;
+				signals[signalId].dependency[controlledSignalId].type = dependencyNode.getAttribute('type');
+			}
+		}
+
+		// signalRerence 0+ - different refer to the same sign from multiple roads
+		var signalReferenceNodes = roadNode.getElementsByTagName('signalReference');
+		if (signalReferenceNodes.length) roads[id].signalReference = [];
+
+		for (var j=0; j < signalReferenceNodes.length; j++) {
+
+			var signalReferenceNode = signalReferenceNodes[j];
+
+			roads[id].signalReference[j] = {};
+			roads[id].signalReference[j].s = parseFloat(signalReferenceNode.getAttribute('s'));
+			roads[id].signalReference[j].t = parseFloat(signalReferenceNode.getAttribute('t'));
+			roads[id].signalReference[j].id = signalReferenceNode.getAttribute('id');
+			roads[id].signalReference[j].orientation = signalReferenceNode.getAttribute('orientation');
+
+			// lane validity records 0+
+			var validityNodes = signalReferenceNode.getElementsByTagName('validity');
+			if (validityNodes.length) roads[id].signalReference[j].validity = [];
+			for (var k=0; k < validityNodes.length; k++) {
+
+				var validityNode = validityNodes[k];
+
+				roads[id].signalReference[j].validity[k] = {};
+				roads[id].signalReference[j].validity[k].fromLane = parseInt(validityNode.getAttribute('fromLane'));
+				roads[id].signalReference[j].validity[k].toLane = parseInt(validityNode.getAttribute('toLane'));
+			}
+		}
+
 		// test
 		//if (id == '500') console.log(roads[id])
 	}
@@ -419,11 +522,11 @@ Map.prototype.parseFromXML = function(xmlFile) {
 			for (var j=0; j < controlNodes.length; j++) {
 
 				var controlNode = controlNodes[j];
-				var singalId = controlNode.getAttribute('signalId');
+				var signalId = controlNode.getAttribute('signalId');
 				
-				controllers[id].control[singalId] = {};
-				controllers[id].control[singalId].singalId = singalId;
-				controllers[id].control[singalId].type = controlNode.getAttribute('type');
+				controllers[id].control[signalId] = {};
+				controllers[id].control[signalId].signalId = signalId;
+				controllers[id].control[signalId].type = controlNode.getAttribute('type');
 			}
 		}
 	}
@@ -525,7 +628,7 @@ Map.prototype.parseFromXML = function(xmlFile) {
 		}
 	}
 
-	return {roads, controllers, junctions, junctionGroups};
+	return {roads:roads, signals: signals, controllers:controllers, junctions:junctions, junctionGroups:junctionGroups};
 }
 
 /*
@@ -549,12 +652,14 @@ Map.prototype.generateFrom = function(file) {
 	if (file.split('.').pop() == 'xodr') {
 		var map = this.parseFromXML(file);
 		this.roads = map.roads;
+		if (map.signals) this.signals = map.signals;
 		if (map.controllers) this.controllers = map.controllers;
 		if (map.junctions) this.junctions = map.junctions;
 		if (map.junctionGroups) this.junctionGroups = map.junctionGroups;
 	} else if (file.split('.').pop() == 'json') {
 		var map = this.parseFromJSON(file);
 		this.roads = map.roads;
+		if (map.signals) this.signals = map.signals;
 		if (map.controllers) this.controllers = map.controllers;
 		if (map.junctions) this.junctions = map.junctions;
 		if (map.junctionGroups) this.junctionGroups = map.junctionGroups;
@@ -566,7 +671,12 @@ Map.prototype.generateMesh = function() {
 	preProcessing(this.roads);
 
 	for (var id in this.roads) {
-		this.mesh[id] = generateRoadMesh(this.roads[id]);
+		this.mesh.road[id] = generateRoadMesh(this.roads[id]);
+	}
+
+	for (var signalId in this.signals) {
+		var signal = this.signals[signalId];
+		this.mesh.signal[signalId] = generateSignalMesh(signal, this.roads[signal.road]);
 	}
 }
 
@@ -629,17 +739,17 @@ Map.prototype.paveRoadById = function(roadId, laneSectionId) {
 
 	// laneSectionId can be omitted, if so, pave the whole road
 	if (!laneSectionId) {
-		for (var laneSectionId = 0; laneSectionId < this.mesh[roadId].length; laneSectionId++) {
-			for (var i =0; i < this.mesh[roadId][laneSectionId].pavement.length; i++) {
-				this.scene.add(this.mesh[roadId][laneSectionId].pavement[i]);
+		for (var laneSectionId = 0; laneSectionId < this.mesh.road[roadId].length; laneSectionId++) {
+			for (var i =0; i < this.mesh.road[roadId][laneSectionId].pavement.length; i++) {
+				this.scene.add(this.mesh.road[roadId][laneSectionId].pavement[i]);
 			}
 		}
 	} else {
 		if (laneSectionId < 0 || laneSectionId > this.roads[roadId].laneSection.length - 1) {
 			throw Error('paveRoadById error: invalid laneSectionId#', laneSectionId);
 		} else {
-			for (var i = 0; i < this.mesh[roadId][laneSectionId].pavement.length; i++) {
-				this.scene.add(this.mesh[roadId][laneSectionId].pavement[i]);
+			for (var i = 0; i < this.mesh.road[roadId][laneSectionId].pavement.length; i++) {
+				this.scene.add(this.mesh.road[roadId][laneSectionId].pavement[i]);
 			}
 		}
 	}
@@ -675,17 +785,17 @@ Map.prototype.showReferenceLineById = function(roadId, laneSectionId) {
 
 	// laneSectionId can be omitted, if so, pave the whole road
 	if (!laneSectionId) {
-		for (var laneSectionId = 0; laneSectionId < this.mesh[roadId].length; laneSectionId++) {
-			for (var i =0; i < this.mesh[roadId][laneSectionId].referenceLine.length; i++) {
-				this.scene.add(this.mesh[roadId][laneSectionId].referenceLine[i]);
+		for (var laneSectionId = 0; laneSectionId < this.mesh.road[roadId].length; laneSectionId++) {
+			for (var i =0; i < this.mesh.road[roadId][laneSectionId].referenceLine.length; i++) {
+				this.scene.add(this.mesh.road[roadId][laneSectionId].referenceLine[i]);
 			}
 		}
 	} else {
 		if (laneSectionId < 0 || laneSectionId > this.roads[roadId].laneSection.length - 1) {
 			throw Error('paveRoadById error: invalid laneSectionId#', laneSectionId);
 		} else {
-			for (var i = 0; i < this.mesh[roadId][laneSectionId].referenceLine.length; i++) {
-				this.scene.add(this.mesh[roadId][laneSectionId].referenceLine[i]);
+			for (var i = 0; i < this.mesh.road[roadId][laneSectionId].referenceLine.length; i++) {
+				this.scene.add(this.mesh.road[roadId][laneSectionId].referenceLine[i]);
 			}
 		}
 	}
@@ -708,6 +818,47 @@ Map.prototype.showReferenceLine = function(roadIds) {
 	else {
 		for (var id in this.roads) {
 			this.showReferenceLineById(id);
+		}
+	}
+}
+
+Map.prototype.showSignalById = function(signalId) {
+
+	if (!this.signals[signalId]) {
+		throw Error('Map.showSignalById error: invalid signalId#', signalId, 'does not exist in Map');
+	}
+
+	this.scene.add(this.mesh.signal[signalId]);
+}
+
+// roadIds can be ommited
+Map.prototype.showSignals = function(roadIds) {
+
+	if (roadIds) {
+		for (var i=0; i < roadIds.length; i++) {
+			
+			var id = roadIds[i];
+			if (!this.hasRoad(id)) {
+				throw Error('Map.showReferenceLine error: invalid roadIds, Map does not have roadId#', roadId);
+				return;
+			}
+
+			var road = this.roads[id];
+
+			if (road.signal) {
+				for (var j = 0; j < road.signal.length; j++) {
+					var signalId = road.signal[j];
+					this.showSignalById(signalId);
+				}
+			} else {
+				console.log('placeSignalsInRoads: no signals along road#', roadIds[i]);
+			}
+		}
+	}
+	// if roadIds are not speicified, show all signals
+	else {
+		for (var signalId in this.signals) {
+			this.showSignalById(signalId);
 		}
 	}
 }
@@ -761,217 +912,13 @@ Map.prototype.getConnectingRoadIds = function(roadId) {
 
 Map.prototype.track2Inertial = function(roadId, s, t, h) {
 
+	if (!this.hasRoad(roadId)) {
+		throw Error('Map.track2Inertial error: invalid roadId#', id, 'does not exist in Map');
+	}
+
 	var road = map.roads[roadId];
-
-	if (!road) {
-		console.warn('track2Inertial: no road of roadId#', roadId, 'found');
-		return;
-	}
-
-	if (s < 0 || s > road.length) {
-		throw Error('converting from track system to inertial system error: invalid s', s, 'for road#', roadId, 'total length', road.length);
-	}
-
-	/*
-	* Helper for track2Inertial
-	*/
-	function getGeometryAtS(road, s) {
-		var result = null;
-		
-		for (var i = 0; i < road.geometry.length; i++) {
-			var geometry = road.geometry[i];
-
-			if (geometry.s + geometry.length <= s) continue;
-			else if (geometry.s <= s) result = geometry; //console.log(geometry.s, s, geometry.s <= s)}
-			else break;
-		}
-
-		// must be s == road.length if result == null
-		return result;
-	}
-
-	function getElevationAtS(road, s) {
-		var result = null;
-
-		if (!road.elevation || !road.elevation.length) return -1;
-
-		for (var i = 0; i < road.elevation.length; i++) {
-			var elevation = road.elevation[i];
-			var nextElevationS = road.elevation[i + 1] ? road.elevation[i + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
-
-			if (nextElevationS <= s) continue;
-			else if (elevation.s > s) break;
-			else {
-				if (!(elevation.s <= s)) throw Error('condition needs changing')
-				result = elevation;
-			}
-		}
-
-		// must be s == road.length if result == null
-		return result;
-	}
-
-	function getSupserelevationAtS(road, s) {
-		var result = null;
-
-		if (!road.superelevation) return -1;
-
-		for (var i = 0; i < road.superelevation.length; i++) {
-			var superelevation = road.superelevation[i];
-			var nextSupserElevationS = road.superelevation[i + 1] ? road.superelevation[i + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
-
-			if (nextSupserElevationS <= s) continue;
-			else if (superelevation.s > s) break;
-			else {
-				if (!(superelevation.s <= s)) throw Error('condition needs changing');
-				result = superelevation;
-			}
-		}
-
-		// must be s == road.length if result == null
-		return result;
-	}
-
-	function getCrossfallAtS(road, s) {
-		var result = null;
-
-		if (!road.crossfall) return -1;
-
-		for (var i = 0; i < road.crossfall.length; i++) {
-			var crossfall = road.corssfall[i];
-			var nextCrossfallS = road.crossfall[i + 1] ? road.crossfall[i + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
-
-			if (nextCrossfallS <= s) continue;
-			else if (crossfall.s > s) break;
-			else {
-				if (!(crossfall.s <= s)) throw Error('condition needs changing');
-				result = crossfall;
-			}
-		}
-
-		// must be s == road.length if result == null
-		return result;
-	}
-
-	function getLaneOffsetAtS(road, s) {
-		var result = null;
-
-		if (!road.laneOffset) return -1;
-
-		for (var i = 0; i < road.laneOffset.length; i++) {
-			var laneOffset = road.laneOffset[i];
-			var nextLaneOffsetS = road.laneOffset[i + 1] ? road.laneOffset[i + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
-
-			if (nextLaneOffsetS <= s) continue;
-			else if (nextLaneOffsetS > s) break;
-			else {
-				if (!(nextLaneOffsetS <= s)) throw Error('condition needs changing')
-				result = laneOffset;
-			}
-		}
-
-		// must be s == road.length if result == null
-		return result;
-	}
-
-	function getLaneSectionAtS(road, s) {
-		var result;
-
-		for (var i = 0; i < road.laneSection.length; i++) {
-			var laneSection = road.laneSection[i];
-			var nextLaneSectionS = road.laneSection[i + 1] ? road.laneSection[i + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
-
-			if (laneSection.s <= s) continue;
-			else if (nextLaneSectionS > s) break;
-			else {
-				if (!(nextLaneSectionS <= s)) throw Error('condition needs changing');
-				result = laneSection;
-			}
-		}
-
-		// must be s == road.length if result == null
-		return result;
-	}
-
-	var geometry = getGeometryAtS(road, s);
-	var elevation = getElevationAtS(road, s);
-	var superelevation = getElevationAtS(road, s);
-	var crossfall = getCrossfallAtS(road, s);
-	var laneOffset = getLaneOffsetAtS(road, s);
-	var laneSection = getLaneSectionAtS(road, s);
-
-	if (elevation == -1) elevation = {s: 0, a: 0, b: 0, c: 0, d: 0};
-	if (laneOffset == -1) laneOffset = {s: 0, a: 0, b: 0, d: 0};
-	if (superelevation == -1) superelevation = {s: 0, a: 0, b: 0, c: 0, d: 0};
-	if (crossfall == -1) crossfall = {side: 'both', s: 0, a: 0, b: 0, c: 0, d: 0};
-
-	if (geometry == null) {
-		
-		// s == road.length
-		geometry = road.geometry[road.geometry.length - 1];
-		laneSection = road.laneSection[road.geometry.length - 1];
-		
-		if (elevation == null) elevation = road.elevation[road.elevation.length - 1];
-		if (laneOffset == null) laneOffset = road.laneOffset[road.laneOffset.length - 1];
-		if (superelevation == null) superelevation = road.superelevation[road.superelevation.length - 1];
-		if (crossfall == null) crossfall = road.crossfall[road.crossfall.length - 1];	
-	}
 	
-	var sOffset, hdg, roll, pitch, centralTOffset;
-	var svector, tvector;
-	var x, y, z;
-
-	// xy-plane
-	sOffset = s - geometry.s;
-	switch(geometry.type) {
-		case 'line':
-			svector = new THREE.Vector3(1, 0, 0);
-			svector.applyAxisAngle(new THREE.Vector3(0, 0, 1), geometry.hdg);
-
-			tvector = svector.clone();
-			tvector.cross(new THREE.Vector3(0, 0, -1));	//? cross svector.x, svector.y, -1 or 0,0,-1?
-			
-			hvector = svector.clone();
-			hvector.cross(tvector);
-
-			hdg = geometry.hdg;
-			x = geometry.x + sOffset * Math.cos(geometry.hdg);
-			y = geometry.y + sOffset * Math.sin(geometry.hdg);
-
-			break;
-		case 'spiral':
-			//generateSpiralPoints(length, sx, sy, hdg, curvStart, curvEnd, ex, ey, tOffset, subOffset, subLength)
-			var sample = generateSpiralPoints(geometry.length, geometry.x, geometry.y, geometry.hdg, geometry.spiral.curvStart, geometry.spiral.curvEnd, geometry.ex, geometry.ey, t, sOffset, geometry.length + geometry.s - s);
-			hdg = sample.heading[0];
-			x = sample.points[0].x;
-			y = sample.points[0].y;
-
-			break;
-		case 'arc':
-			var curvature = geometry.arc.curvature;
-			var radius = 1 / Math.abs(curvature);
-			var rotation = geometry.hdg - Math.sign(curvature) * Math.PI / 2;
-			var theta = sOffset * curvature;
-			hdg = geometry.hdg + theta;
-			x = geometry.x - radius * Math.cos(rotation) + radius * Math.cos(rotation + theta);
-			y = geometry.y - radius * Math.sin(rotation) + radius * Math.sin(rotation + theta);
-	}
-
-	// z when calcuating pitch of s-t, need to consider at connection pointn of elevation curve
-	sOffset = s - elevation.s;
-	z = elevation.a + elevation.b * sOffset + elevation.c * Math.pow(sOffset, 2) + elevation.d * Math.pow(sOffset, 3);
-
-	var prez = elevation.a + elevation.b * (sOffset - 0.1) + elevation.c * Math.pow(sOffset - 0.1, 2) + elevation.d * Math.pow(sOffset - 0.1, 3);
-	pitch = Math.atan((z - prez) / 0.1);
-
-	// superElevation
-	sOffset = s - superelevation.s;
-	roll = superelevation.a + superelevation.b * sOffset + superelevation.c * Math.pow(sOffset, 2) + superelevation.d * Math.pow(sOffset, 3);
-	
-	return {
-		position: new THREE.Vector3(x, y, z),
-		rotation: new THREE.Euler(roll, pitch, hdg, 'XYZ')
-	}
+	return track2Inertial(road, s, t, h);
 }
 
 /*
@@ -1283,10 +1230,10 @@ function subDivideRoadGeometry(road) {
 	var geometries = road.geometry;
 	var newGeometries = [];
 
+	var laneOffsetId = 0;
 	for (var i = 0; i < geometries.length; i++) {
 	
 		var geometry = geometries[i];
-		var laneOffsetId = 0;
 		var foundHead = false;
 	
 		if (geometry.type != 'line') {
@@ -1337,7 +1284,8 @@ function subDivideRoadGeometry(road) {
 				}
 
 				newGeometries.push(subGeometry2);
-				laneOffsetId++;
+				// current LaneOffsetId is done
+				if (nextLaneOffsetS <= geometry.s + geometry.length) laneOffsetId++;
 
 			} else if (laneOffset.s == geometry.s){
 				
@@ -1360,8 +1308,36 @@ function subDivideRoadGeometry(road) {
 				}
 
 				newGeometries.push(subGeometry);
-				laneOffsetId++;
+				// current LaneOffsetId is done
+				if (nextLaneOffsetS <= geometry.s + geometry.length) laneOffsetId++;
 
+			} else if (laneOffset.s < geometry.s && nextLaneOffsetS > geometry.s) {
+
+				if (!foundHead) {
+					foundHead = true;
+					var subGeometry1 = {};
+					subGeometry1.s = geometry.s;
+					subGeometry1.hdg = geometry.hdg;
+					subGeometry1.type = geometry.type;
+					subGeometry1.length = Math.min(geometry.s + geometry.length, nextLaneOffsetS) - geometry.s;
+					subGeometry1.x = geometry.x;
+					subGeometry1.y = geometry.y;
+
+					if (laneOffset.a != 0 || laneOffset.b != 0 || laneOffset.c != 0 || laneOffset.d != 0) {
+						var sOffset = geometry.s - laneOffset.s;
+						subGeometry1.offset = {};
+						subGeometry1.offset.a = laneOffset.a + laneOffset.b * sOffset + laneOffset.c * Math.pow(sOffset, 2) + laneOffset.d * Math.pow(sOffset, 3);
+						subGeometry1.offset.b = laneOffset.b + 2 * laneOffset.c * sOffset + 3 * laneOffset.d * Math.pow(sOffset, 2);
+						subGeometry1.offset.c = laneOffset.c + 3 * laneOffset.d * sOffset;
+						subGeometry1.offset.d = laneOffset.d;
+						
+					}
+
+					newGeometries.push(subGeometry1);
+				}
+
+				if (nextLaneOffsetS <= geometry.s + geometry.length) laneOffsetId++;
+				
 			} else {
 				break;
 			}
@@ -1415,6 +1391,12 @@ function generateLaneSectionMesh(road, laneSectionId) {
 	var end = road.laneSection[laneSectionId + 1] ? road.laneSection[laneSectionId + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
 	var geometries = getGeometry(road, start, end);
 
+	// elevation and lateral profile
+	var elevationLateralProfile = {};
+	elevationLateralProfile.elevations = road.elevation;
+	elevationLateralProfile.superelevations = road.superelevation;
+	elevationLateralProfile.crossfalls = road.crossfall;
+
 	// pave lanes for each geometry seg
 	for (var i = 0; i < geometries.length; i++ ) {
 
@@ -1430,12 +1412,6 @@ function generateLaneSectionMesh(road, laneSectionId) {
 			geometry.y += Math.abs(tOffset) * Math.sin(geometry.hdg + Math.PI / 2 * Math.sign(tOffset));
 			geometry.offset.sOffset = 0;
 		}
-
-		// elevation and lateral profile
-		var elevationLateralProfile = {};
-		elevationLateralProfile.elevations = getElevation(road, start, end);
-		elevationLateralProfile.superelevations = getSuperElevation(road, start, end);
-		elevationLateralProfile.crossfalls = getCrossfall(road, start, end);
 
 		var currentLane = [0];
 		var innerGeometries = [geometry];
@@ -1524,156 +1500,6 @@ function compareLane(laneA, laneB) {
 	}
 	// a == b
 	return 0;
-}
-
-function getCrossfall(road, s, es) {
-
-	if (s >= es + 1E-4) {
-		throw Error('getCrossfall error: start-s >= endS + 1E-4');
-	}
-
-	var crossfalls = [];
-	var found = false;
-
-	if (!road.crossfall) {
-		return crossfalls;
-	}
-
-	for (var i = 0; i < road.crossfall.length; i++) {
-
-		var crossfall = road.crossfall[i];
-		var nextCrossfallS = road.crossfall[i + 1] ? road.crossfall[i + 1].s :  road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
-
-		// if already fount the start of the returning supserelevation, copy the rest supserelevations as the succeeding ones until es
-		if (found) {
-			if (crossfall.s < es) {
-				crossfalls.push(crossfall);
-			} else {
-				break;
-			}
-		}
-
-		if (!found) {
-			if (nextCrossfallS <= s) {
-				continue;
-			}
-			if (crossfall.s == s) {
-				crossfalls.push(crossfall);
-			} else if (crossfall.s < s && nextCrossfallS > s) {
-				var sOffset = s - crossfall.s;
-				var newCrossfall = {};
-				newCrossfall.s = s;
-				newCrossfall.side = crossfall.side;
-				newCrossfall.a = crossfall.a + crossfall.b * sOffset + crossfall.c * Math.pow(sOffset, 2) + crossfall.d * Math.pow(sOffset, 3);
-				newCrossfall.b = crossfall.b + 2 * crossfall.c * sOffset + 3 * crossfall.d * Math.pow(sOffset, 2);
-				newCrossfall.c = crossfall.c + 3 * crossfall.d * sOffset;
-				newCrossfall.d = crossfall.d;
-				crossfalls.push(newCrossfall);
-			}
-			found = true;
-		}
-	}
-
-	return crossfalls;
-}
-
-function getSuperElevation(road, s, es) {
-
-	if (s >= es + 1E-4) {
-		throw Error('getSuperElevation error: start-s >= endS + 1E-4');
-	}
-
-	var superelevations = [];
-	var found = false;
-
-	if (!road.superelevation) {
-		return superelevations;
-	}
-
-	for (var i = 0; i < road.superelevation.length; i++) {
-
-		var superelevation = road.superelevation[i];
-		var nextSupserElevationS = road.superelevation[i + 1] ? road.superelevation[i + 1].s :  road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
-
-		// if already fount the start of the returning supserelevation, copy the rest supserelevations as the succeeding ones until es
-		if (found) {
-			if (superelevation.s < es) {
-				superelevations.push(superelevation);
-			} else {
-				break;
-			}
-		}
-
-		if (!found) {
-			if (nextSupserElevationS <= s) {
-				continue;
-			}
-			if (superelevation.s == s) {
-				superelevations.push(superelevation);
-			} else if (superelevation.s < s && nextSupserElevationS > s) {
-				var sOffset = s - superelevation.s;
-				var newSuperelevation = {};
-				newSuperelevation.s = s;
-				newSuperelevation.a = superelevation.a + superelevation.b * sOffset + superelevation.c * Math.pow(sOffset, 2) + superelevation.d * Math.pow(sOffset, 3);
-				newSuperelevation.b = superelevation.b + 2 * superelevation.c * sOffset + 3 * superelevation.d * Math.pow(sOffset, 2);
-				newSuperelevation.c = superelevation.c + 3 * superelevation.d * sOffset;
-				newSuperelevation.d = superelevation.d;
-				superelevations.push(newSuperelevation);
-			}
-			found = true;
-		}
-	}
-
-	return superelevations;
-}
-
-function getElevation(road, s, es) {
-
-	if (s >= es + 1E-4) {
-		throw Error('getElevation error: start-s >= endS + 1E-4');
-	}
-
-	var elevations = [];
-	var found = false;
-	
-	if (!road.elevation) {
-		return elevations;
-	}
-
-	for (var i = 0; i < road.elevation.length; i++) {
-		var elevation = road.elevation[i];
-		var nextElevationS = road.elevation[i + 1] ? road.elevation[i + 1].s :  road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length
-		
-		// if already found the start of the returning elevation, copy the rest of the elevations as the succeeding ones until es
-		if (found) {
-			if (elevation.s < es) {
-				elevations.push(elevation);
-			} else {
-				break;
-			}
-		}
-
-		if (!found) {
-			if (nextElevationS <= s) {
-				continue;
-			}
-			if (elevation.s == s) {
-				elevations.push(elevation);
-			} else if (elevation.s < s && nextElevationS > s) {
-				var sOffset = s - elevation.s;
-				var newElevation = {};
-				newElevation.s = s;
-				newElevation.a = elevation.a + elevation.b * sOffset + elevation.c * Math.pow(sOffset, 2) + elevation.d * Math.pow(sOffset, 3);
-				newElevation.b = elevation.b + 2 * elevation.c * sOffset + 3 * elevation.d * Math.pow(sOffset, 2);
-				newElevation.c = elevation.c + 3 * elevation.d * sOffset;
-				newElevation.d = elevation.d;
-				elevations.push(newElevation);
-			}
-			found = true;
-		}
-	}
-
-	return elevations;
 }
 
 function getGeometry(road, s, es) {
@@ -1879,9 +1705,15 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 		return;
 	}
 
+	var subElevationLateralProfile = {elevations: null, superelevations: null, crossfalls: null};
+
 	if (lane.id == 0) {
+		subElevationLateralProfile.elevations = getElevation(elevationLateralProfile.elevations, geometry.s, geometry.s + geometry.length);
+		subElevationLateralProfile.superelevations = getSuperElevation(elevationLateralProfile.superelevations, geometry.s, geometry.s + geometry.length);
+		subElevationLateralProfile.crossfalls = getCrossfall(elevationLateralProfile.crossfalls, geometry.s, geometry.s + geometry.length);
+
 		// width and border is not allowed for center lane. center lane only needs to draw the mark
-		drawRoadMark(laneSectionStart, geometry, lane.roadMark, mesh);
+		drawRoadMark(laneSectionStart, geometry, subElevationLateralProfile, null, lane.roadMark);
 		return;
 	}
 
@@ -1903,11 +1735,6 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 	var type = geometry.type;
 	var oGeometries = [];	// outer border of current geometry
 
-	/*
-	* find which parts of width is covered in this geometry segment 
-	* NOTE: cannot reset width.sOffset if a width seg is partially covered by the geometry (due to polynomial's ds definition!)
-	* Potential BUG: assuming the above situation does not exist
-	*/
 	// store the relative width entries covered by this sgement of geometry
 	var currentWidth = [];
 	for (var i = 0; i < lane.width.length; i++) {
@@ -1922,8 +1749,9 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 		}
 	}
 
-	var v1, v2, v3, v4;
-	var shape;
+	var iBorderPoints, oBorderPoints, topiBorderPoints, topoBorderPoints;
+	// laneBase is lane face geomtry without height, the rest 5 are used when lane has height, thus lane has six face geometry
+	var laneBase, laneTop, laneInnerSide, laneOuterSide, lanePositiveS, laneNegativeS;
 
 	for (var i = 0; i < currentWidth.length; i++) {
 
@@ -1962,6 +1790,14 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 		oGeometry.offset.c = innerC + Math.sign(lane.id) * widthC;
 		oGeometry.offset.d = innerD + Math.sign(lane.id) * widthD;
 
+		// elevations covered by this width segment
+		subElevationLateralProfile.elevations = getElevation(elevationLateralProfile.elevations, Math.max(width.sOffset + laneSectionStart, geometry.s), Math.min(nextWidthSOffset + laneSectionStart, geometry.s + geometry.centralLength));
+		subElevationLateralProfile.superelevations = getSuperElevation(elevationLateralProfile.superelevations, Math.max(width.sOffset + laneSectionStart, geometry.s), Math.min(nextWidthSOffset + laneSectionStart, geometry.s + geometry.centralLength));
+		subElevationLateralProfile.crossfalls = getCrossfall(elevationLateralProfile.crossfalls, Math.max(width.sOffset + laneSectionStart, geometry.s), Math.min(nextWidthSOffset + laneSectionStart, geometry.s + geometry.centralLength));
+
+		// laneHeights of the current lane covered by this width segment {inner: array of {s, height}, outer: array of {s, height}}
+		var laneHeights = getLaneHeight(laneSectionStart, lane.height, Math.max(width.sOffset + laneSectionStart, geometry.s), Math.min(nextWidthSOffset + laneSectionStart, geometry.s + geometry.centralLength));
+
 		switch(type) {
 			
 			case 'line':
@@ -1971,7 +1807,6 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 				// tOffset of centralLane at start of the current width seg
 				var ds = gOffset;
 				var tOffset = geometry.offset.a + geometry.offset.b * ds + geometry.offset.c * Math.pow(ds, 2) + geometry.offset.d * Math.pow(ds, 3);
-				//drawCustomLine([new THREE.Vector2(sx + Math.abs(tOffset) * Math.cos(hdg + Math.PI / 2 * Math.sign(tOffset)), sy + Math.abs(tOffset) * Math.sin(hdg + Math.PI / 2 * Math.sign(tOffset))), new THREE.Vector2(sx + Math.abs(tOffset) * Math.cos(hdg + Math.PI / 2 * Math.sign(tOffset)) + 10, sy + Math.abs(tOffset) * Math.sin(hdg + Math.PI / 2 * Math.sign(tOffset)))], 0x000001);
 
 				// tOffset of centralLane at the end of the current width seg
 				var ds = gOffset + length;
@@ -1979,7 +1814,6 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 
 				ex = sx + length * Math.cos(hdg) + Math.abs(tOffset) * Math.cos(hdg + Math.PI / 2 * Math.sign(tOffset));
 				ey = sy + length * Math.sin(hdg) + Math.abs(tOffset) * Math.sin(hdg + Math.PI / 2 * Math.sign(tOffset));
-				//drawCustomLine([new THREE.Vector2(ex, ey), new THREE.Vector2(ex + 10, ey)], 0x000001);		
 				
 				oGeometry.x = sx + Math.abs(oGeometry.offset.a) * Math.cos(hdg + Math.PI / 2 * Math.sign(oGeometry.offset.a));
 				oGeometry.y = sy + Math.abs(oGeometry.offset.a) * Math.sin(hdg + Math.PI / 2 * Math.sign(oGeometry.offset.a));
@@ -1995,17 +1829,37 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 				if (!(width.a == 0 && width.b == 0 && width.c == 0 && width.d == 0)) {
 
 					// get inner border spline points
-					var iBorderPoints = generateCubicPoints(gOffset, length, sx, sy, hdg, geometry.offset.a, geometry.offset.b, geometry.offset.c, geometry.offset.d);
+					iBorderPoints = generateCubicPoints(gOffset, length, subElevationLateralProfile, null, sx, sy, hdg, geometry.offset);
 					//drawCustomLine(iBorderPoints, 0xFF6666);
 
 					// get outer border spline points
-					var oBorderPoints = generateCubicPoints(0, length, sx, sy, hdg, oGeometry.offset.a, oGeometry.offset.b, oGeometry.offset.c, oGeometry.offset.d);
+					oBorderPoints = generateCubicPoints(0, length, subElevationLateralProfile, null, sx, sy, hdg, oGeometry.offset);
 					//drawCustomLine(oBorderPoints, 0x6666FF);
-					// reverse oBorder points
-					reversePoints(oBorderPoints);
 					
-					if (iBorderPoints[0].distanceTo(iBorderPoints[iBorderPoints.length - 1]) > 1E-10) {
-						shape = createCustomShape(iBorderPoints, oBorderPoints);
+					if (lane.id < 0)
+						laneBase = createCustomFaceGeometry(iBorderPoints, oBorderPoints);
+					else if (lane.id > 0)
+						laneBase = createCustomFaceGeometry(oBorderPoints, iBorderPoints);
+
+					if (laneHeights.inner.length && laneHeights.outer.length) {
+
+						topiBorderPoints = generateCubicPoints(gOffset, length, subElevationLateralProfile, laneHeights.inner, sx, sy, hdg, geometry.offset);
+						topoBorderPoints = generateCubicPoints(0, length, subElevationLateralProfile, laneHeights.outer, sx, sy, hdg, oGeometry.offset);
+
+						if (lane.id < 0) {
+							laneTop = createCustomFaceGeometry(topiBorderPoints, topoBorderPoints);
+							laneInnerSide = createCustomFaceGeometry(iBorderPoints, topiBorderPoints);
+							laneOuterSide = createCustomFaceGeometry(topoBorderPoints, oBorderPoints);
+							lanePositiveS = createCustomFaceGeometry([topiBorderPoints[topiBorderPoints.length - 1], iBorderPoints[iBorderPoints.length - 1]], [topoBorderPoints[topoBorderPoints.length - 1], oBorderPoints[oBorderPoints.length - 1]]);
+							laneNegativeS = createCustomFaceGeometry([topoBorderPoints[0], oBorderPoints[0]], [topiBorderPoints[0], iBorderPoints[0]]);
+						}
+						else if (lane.id > 0) {
+							laneTop = createCustomFaceGeometry(topoBorderPoints, topiBorderPoints);
+							laneInnerSide = createCustomFaceGeometry(topiBorderPoints, iBorderPoints);
+							laneOuterSide = createCustomFaceGeometry(oBorderPoints, topoBorderPoints);
+							lanePositiveS = createCustomFaceGeometry([topoBorderPoints[topoBorderPoints.length - 1], oBorderPoints[oBorderPoints.length - 1]], [topiBorderPoints[topiBorderPoints.length - 1], iBorderPoints[iBorderPoints.length - 1]]);
+							laneNegativeS = createCustomFaceGeometry([topiBorderPoints[0], iBorderPoints[0]], [topoBorderPoints[0], oBorderPoints[0]]);
+						}
 					}
 				}
 
@@ -2014,7 +1868,7 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 
 				//* ALWAYS use the central clothoid and shift by tOffset to find the border when paving along spiral line
 
-				var centralSample = generateSpiralPoints(geometry.centralLength, geometry.centralX, geometry.centralY, geometry.hdg, geometry.spiral.curvStart, geometry.spiral.curvEnd, geometry.ex, geometry.ey, null, gOffset, length);
+				var centralSample = generateSpiralPoints(geometry.centralLength, null, null, geometry.centralX, geometry.centralY, geometry.hdg, geometry.spiral.curvStart, geometry.spiral.curvEnd, geometry.ex, geometry.ey, null, gOffset, length);
 				var sx = centralSample.points[0].x;
 				var sy = centralSample.points[0].y;
 				hdg = centralSample.heading[0];
@@ -2039,18 +1893,39 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 				if (!(width.a == 0 && width.b == 0 && width.c == 0 && width.d == 0)) {
 
 					// get inner border spline points
-					//generateSpiralPoints(length, sx, sy, hdg, curvStart, curvEnd, ex, ey, tOffset, subOffset, subLength)
-					var iBorderPoints = generateSpiralPoints(geometry.length, geometry.x, geometry.y, geometry.hdg, geometry.spiral.curvStart, geometry.spiral.curvEnd, geometry.ex, geometry.ey, geometry.offset, gOffset, length).points;
+					iBorderPoints = generateSpiralPoints(geometry.length, subElevationLateralProfile, null, geometry.x, geometry.y, geometry.hdg, geometry.spiral.curvStart, geometry.spiral.curvEnd, geometry.ex, geometry.ey, geometry.offset, gOffset, length).points;
 					//drawCustomLine(iBorderPoints, 0xFF6666);
-
-					// get outer border spline points
-					var oBorderPoints = generateSpiralPoints(oGeometry.length, oGeometry.x, oGeometry.y, oGeometry.hdg, oGeometry.spiral.curvStart, oGeometry.spiral.curvEnd, oGeometry.ex, oGeometry.ey, oGeometry.offset).points;
-					//drawCustomLine(oBorderPoints, 0x6666FF);
-					// reverse oBorder points
-					reversePoints(oBorderPoints);
+					//if (lane.type != 'border' && lane.type != 'none') drawLineAtPoint(iBorderPoints[iBorderPoints.length - 1].x, iBorderPoints[iBorderPoints.length - 1].y, iBorderPoints[iBorderPoints.length - 1].z, geometry.hdg + Math.sign(lane.id) * Math.PI / 4)
 					
-					if (iBorderPoints[0].distanceTo(iBorderPoints[iBorderPoints.length - 1]) > 1E-10) {
-						shape = createCustomShape(iBorderPoints, oBorderPoints);
+					// get outer border spline points
+					oBorderPoints = generateSpiralPoints(oGeometry.length, subElevationLateralProfile, null, oGeometry.x, oGeometry.y, oGeometry.hdg, oGeometry.spiral.curvStart, oGeometry.spiral.curvEnd, oGeometry.ex, oGeometry.ey, oGeometry.offset).points;
+					//drawCustomLine(oBorderPoints, 0x6666FF);
+					//if (lane.type != 'border' && lane.type != 'none') drawLineAtPoint(oBorderPoints[oBorderPoints.length - 1].x, oBorderPoints[oBorderPoints.length - 1].y, oBorderPoints[oBorderPoints.length - 1].z, geometry.hdg + Math.sign(lane.id) * Math.PI / 4)
+					
+					if (lane.id < 0)
+						laneBase = createCustomFaceGeometry(iBorderPoints, oBorderPoints);
+					if (lane.id > 0)
+						laneBase = createCustomFaceGeometry(oBorderPoints, iBorderPoints);
+
+					if (laneHeights.inner.length && laneHeights.outer.length) {
+
+						topiBorderPoints = generateSpiralPoints(geometry.length, subElevationLateralProfile, laneHeights.inner, geometry.x, geometry.y, geometry.hdg, geometry.spiral.curvStart, geometry.spiral.curvEnd, geometry.ex, geometry.ey, geometry.offset, gOffset, length).points;
+						topoBorderPoints = generateSpiralPoints(oGeometry.length, subElevationLateralProfile, laneHeights.outer, oGeometry.x, oGeometry.y, oGeometry.hdg, oGeometry.spiral.curvStart, oGeometry.spiral.curvEnd, oGeometry.ex, oGeometry.ey, oGeometry.offset).points;
+
+						if (lane.id < 0) {
+							laneTop = createCustomFaceGeometry(topiBorderPoints, topoBorderPoints);
+							laneInnerSide = createCustomFaceGeometry(iBorderPoints, topiBorderPoints);
+							laneOuterSide = createCustomFaceGeometry(topoBorderPoints, oBorderPoints);
+							lanePositiveS = createCustomFaceGeometry([topiBorderPoints[topiBorderPoints.length - 1], iBorderPoints[iBorderPoints.length - 1]], [topoBorderPoints[topoBorderPoints.length - 1], oBorderPoints[oBorderPoints.length - 1]]);
+							laneNegativeS = createCustomFaceGeometry([topoBorderPoints[0], oBorderPoints[0]], [topiBorderPoints[0], iBorderPoints[0]]);
+						}
+						else if (lane.id > 0) {
+							laneTop = createCustomFaceGeometry(topoBorderPoints, topiBorderPoints);
+							laneInnerSide = createCustomFaceGeometry(topiBorderPoints, iBorderPoints);
+							laneOuterSide = createCustomFaceGeometry(oBorderPoints, topoBorderPoints);
+							lanePositiveS = createCustomFaceGeometry([topoBorderPoints[topoBorderPoints.length - 1], oBorderPoints[oBorderPoints.length - 1]], [topiBorderPoints[topiBorderPoints.length - 1], iBorderPoints[iBorderPoints.length - 1]]);
+							laneNegativeS = createCustomFaceGeometry([topiBorderPoints[0], iBorderPoints[0]], [topoBorderPoints[0], oBorderPoints[0]]);
+						}
 					}
 				}
 
@@ -2083,17 +1958,37 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 				if (!(width.a == 0 && width.b == 0 && width.c == 0 && width.d == 0)) {
 
 					// get inner border spline points
-					var iBorderPoints = generateArcPoints(length, sx, sy, hdg, curvature, ex, ey, {a: innerA, b: innerB, c: innerC, d: innerD});
+					iBorderPoints = generateArcPoints(length, subElevationLateralProfile, null, sx, sy, hdg, curvature, ex, ey, {a: innerA, b: innerB, c: innerC, d: innerD}).points;
 					//drawCustomLine(iBorderPoints, 0xFF6666);
 
 					// get outer border spline points
-					var oBorderPoints = generateArcPoints(length, sx, sy, hdg, curvature, ex, ey, oGeometry.offset);
+					oBorderPoints = generateArcPoints(length, subElevationLateralProfile, null, sx, sy, hdg, curvature, ex, ey, oGeometry.offset).points;
 					//drawCustomLine(oBorderPoints, 0x6666FF);
-					// reverse oBorder points
-					reversePoints(oBorderPoints);
+					
+					if (lane.id < 0)
+						laneBase = createCustomFaceGeometry(iBorderPoints, oBorderPoints);
+					if (lane.id > 0)
+						laneBase = createCustomFaceGeometry(oBorderPoints, iBorderPoints);
 
-					if (iBorderPoints[0].distanceTo(iBorderPoints[iBorderPoints.length - 1]) > 1E-10) {
-						shape = createCustomShape(iBorderPoints, oBorderPoints);
+					if (laneHeights.inner.length && laneHeights.outer.length) {
+
+						topiBorderPoints = generateArcPoints(length, subElevationLateralProfile, laneHeights.inner, sx, sy, hdg, curvature, ex, ey, {a: innerA, b: innerB, c: innerC, d: innerD}).points;
+						topoBorderPoints = generateArcPoints(length, subElevationLateralProfile, laneHeights.outer, sx, sy, hdg, curvature, ex, ey, oGeometry.offset).points;
+
+						if (lane.id < 0) {
+							laneTop = createCustomFaceGeometry(topiBorderPoints, topoBorderPoints);
+							laneInnerSide = createCustomFaceGeometry(iBorderPoints, topiBorderPoints);
+							laneOuterSide = createCustomFaceGeometry(topoBorderPoints, oBorderPoints);
+							lanePositiveS = createCustomFaceGeometry([topiBorderPoints[topiBorderPoints.length - 1], iBorderPoints[iBorderPoints.length - 1]], [topoBorderPoints[topoBorderPoints.length - 1], oBorderPoints[oBorderPoints.length - 1]]);
+							laneNegativeS = createCustomFaceGeometry([topoBorderPoints[0], oBorderPoints[0]], [topiBorderPoints[0], iBorderPoints[0]]);
+						}
+						else if (lane.id > 0) {
+							laneTop = createCustomFaceGeometry(topoBorderPoints, topiBorderPoints);
+							laneInnerSide = createCustomFaceGeometry(topiBorderPoints, iBorderPoints);
+							laneOuterSide = createCustomFaceGeometry(oBorderPoints, topoBorderPoints);
+							lanePositiveS = createCustomFaceGeometry([topoBorderPoints[topoBorderPoints.length - 1], oBorderPoints[oBorderPoints.length - 1]], [topiBorderPoints[topiBorderPoints.length - 1], iBorderPoints[iBorderPoints.length - 1]]);
+							laneNegativeS = createCustomFaceGeometry([topiBorderPoints[0], iBorderPoints[0]], [topoBorderPoints[0], oBorderPoints[0]]);
+						}
 					}
 				}
 
@@ -2103,20 +1998,33 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 		oGeometries.push(oGeometry);
 
 		try {
-			if (shape && lane.type != 'border' && lane.type != 'none') {
-				mesh.push(new THREE.Mesh(new THREE.ShapeBufferGeometry(shape), new THREE.MeshBasicMaterial({color: color[lane.type]? color[lane.type] : color.default})));
+			if (lane.type != 'border' && lane.type != 'none') {
+				var laneMesh = new THREE.Group();
+				var baseMesh = new THREE.Mesh(laneBase, new THREE.MeshBasicMaterial({color: color[lane.type]? color[lane.type] : color.default, side: THREE.DoubleSide}));
+				laneMesh.add(baseMesh);
+
+				if (laneHeights.inner.length && laneHeights.outer.length) {
+					var topMesh = new THREE.Mesh(laneTop, new THREE.MeshBasicMaterial({color: color[lane.Type]? color[lane.type] : color.default, side: THREE.DoubleSide}))
+					var innerMesh = new THREE.Mesh(laneInnerSide, new THREE.MeshBasicMaterial({color: color[lane.type]? color[lane.type] : color.default, side: THREE.DoubleSide}));
+					var outerMesh = new THREE.Mesh(laneOuterSide, new THREE.MeshBasicMaterial({color: color[lane.type]? color[lane.type] : color.default, side: THREE.DoubleSide}));
+					var frontMesh = new THREE.Mesh(lanePositiveS, new THREE.MeshBasicMaterial({color: color[lane.type]? color[lane.type] : color.default, side: THREE.DoubleSide}));
+					var backMesh = new THREE.Mesh(laneNegativeS, new THREE.MeshBasicMaterial({color: color[lane.type]? color[lane.type] : color.default, side: THREE.DoubleSide}));
+					laneMesh.add(topMesh);
+					laneMesh.add(innerMesh);
+					laneMesh.add(outerMesh);
+					laneMesh.add(frontMesh);
+					laneMesh.add(backMesh);
+				}
+				mesh.push(laneMesh);
 			}
 		} catch(e) {
 			console.error(type, e.stack)
 		}
-	}
 
-	// draw road marks
-	for (var i = 0; i < oGeometries.length; i++) {
-		var oGeometry = oGeometries[i];
+		// draw road marks
 		try {
 			if (oGeometry.length > 1E-10)
-				drawRoadMark(laneSectionStart, oGeometries[i], lane.roadMark, mesh);	
+				drawRoadMark(laneSectionStart, oGeometries[i], subElevationLateralProfile, laneHeights.outer, lane.roadMark, mesh);	
 		} catch(e) {
 			console.error(e);
 		}
@@ -2125,46 +2033,249 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 	return oGeometries;
 }
 
-function createRectShape(v1, v2, v3, v4) {
+function getElevation(elevations, s, es) {
 
-	var shape = new THREE.Shape();
-	shape.moveTo(v1.x, v1.y);
-	shape.lineTo(v2.x, v2.y);
-	shape.lineTo(v3.x, v3.y);
-	shape.lineTo(v4.x, v4.y);
-
-	return shape;
-}
-
-function createCustomShape(iBorderPoints, oBorderPoints) {
-
-	var shape = new THREE.Shape();
-	shape.moveTo(iBorderPoints[0].x, iBorderPoints[0].y);
-	for (var i = 1; i < iBorderPoints.length; i++) {
-		shape.lineTo(iBorderPoints[i].x, iBorderPoints[i].y);
+	if (s >= es + 1E-4) {
+		throw Error('getElevation error: start-s >= endS + 1E-4');
 	}
-	for (var i = 0; i < oBorderPoints.length; i++) {
-		//if (i < oBorderPoints.length - 1 && oBorderPoints[i].distanceTo(oBorderPoints[i + 1]) < 1E-15) {
-		//	console.log('oBorderPoints#' + i + ' and #' + (i + 1) + ' too close: distance ' + oBorderPoints[i].distanceTo(oBorderPoints[i + 1]));
-		//	continue;
-		//}
-		shape.lineTo(oBorderPoints[i].x, oBorderPoints[i].y);
-	}
-	shape.lineTo(iBorderPoints[0].x, iBorderPoints[0].y);
 
-	return shape;
-}
-
-function createArcShape(center, v1, v3, iRadius, oRadius, rotation, theta, isClockwise) {
-
-	var shape = new THREE.Shape();
-	shape.moveTo(v1.x, v1.y);
-	shape.absarc(center.x, center.y, iRadius, rotation, rotation + theta, isClockwise);
-	shape.lineTo(v3.x, v3.y);
-	shape.absarc(center.x, center.y, oRadius, rotation + theta, rotation, !isClockwise);
-	//shape.lineTo(v1.x, v1.y);		// if add this line, road#515 geometry#2 lane#-2 won't draw, same error happens to road#517 do not know why
+	var newElevations = [];
+	var found = false;
 	
-	return shape;
+	if (!elevations) {
+		return elevations;
+	}
+
+	for (var i = 0; i < elevations.length; i++) {
+		var elevation = elevations[i];
+		var nextElevationS = elevations[i + 1] ? elevations[i + 1].s : es
+		
+		// if already found the start of the returning elevation, copy the rest of the elevations as the succeeding ones until es
+		if (found) {
+			if (elevation.s < es) {
+				newElevations.push(elevation);
+			} else {
+				break;
+			}
+		}
+
+		if (!found) {
+			if (nextElevationS <= s) {
+				continue;
+			}
+			if (elevation.s == s) {
+				newElevations.push(elevation);
+			} else if (elevation.s < s && nextElevationS > s) {
+				var sOffset = s - elevation.s;
+				var newElevation = {};
+				newElevation.s = s;
+				newElevation.a = elevation.a + elevation.b * sOffset + elevation.c * Math.pow(sOffset, 2) + elevation.d * Math.pow(sOffset, 3);
+				newElevation.b = elevation.b + 2 * elevation.c * sOffset + 3 * elevation.d * Math.pow(sOffset, 2);
+				newElevation.c = elevation.c + 3 * elevation.d * sOffset;
+				newElevation.d = elevation.d;
+				newElevations.push(newElevation);
+			} else {
+				console.error(elevation.s, s, nextElevationS)
+			}
+			found = true;
+		}
+	}
+
+	return newElevations;
+}
+
+function getSuperElevation(superelevations, s, es) {
+
+	if (s >= es + 1E-4) {
+		throw Error('getSuperElevation error: start-s >= endS + 1E-4');
+	}
+
+	var newSuperelevations = [];
+	var found = false;
+
+	if (!superelevations) {
+		return superelevations;
+	}
+
+	for (var i = 0; i < superelevations.length; i++) {
+
+		var superelevation = superelevations[i];
+		var nextSupserElevationS = superelevations[i + 1] ? superelevations[i + 1].s : es;
+
+		// if already fount the start of the returning supserelevation, copy the rest supserelevations as the succeeding ones until es
+		if (found) {
+			if (superelevation.s < es) {
+				newSuperelevations.push(superelevation);
+			} else {
+				break;
+			}
+		}
+
+		if (!found) {
+			if (nextSupserElevationS <= s) {
+				continue;
+			}
+			if (superelevation.s == s) {
+				newSuperelevations.push(superelevation);
+			} else if (superelevation.s < s && nextSupserElevationS > s) {
+				var sOffset = s - superelevation.s;
+				var newSuperelevation = {};
+				newSuperelevation.s = s;
+				newSuperelevation.a = superelevation.a + superelevation.b * sOffset + superelevation.c * Math.pow(sOffset, 2) + superelevation.d * Math.pow(sOffset, 3);
+				newSuperelevation.b = superelevation.b + 2 * superelevation.c * sOffset + 3 * superelevation.d * Math.pow(sOffset, 2);
+				newSuperelevation.c = superelevation.c + 3 * superelevation.d * sOffset;
+				newSuperelevation.d = superelevation.d;
+				newSuperelevations.push(newSuperelevation);
+			}
+			found = true;
+		}
+	}
+
+	return newSuperelevations;
+}
+
+function getCrossfall(crossfalls, s, es) {
+
+	if (s >= es + 1E-4) {
+		throw Error('getCrossfall error: start-s >= endS + 1E-4');
+	}
+
+	var newCrossfalls = [];
+	var found = false;
+
+	if (!crossfalls) {
+		return crossfalls;
+	}
+
+	for (var i = 0; i < crossfalls.length; i++) {
+
+		var crossfall = crossfalls[i];
+		var nextCrossfallS = crossfalls[i + 1] ? crossfalls[i + 1].s : es;
+
+		// if already fount the start of the returning supserelevation, copy the rest supserelevations as the succeeding ones until es
+		if (found) {
+			if (crossfall.s < es) {
+				newCrossfalls.push(crossfall);
+			} else {
+				break;
+			}
+		}
+
+		if (!found) {
+			if (nextCrossfallS <= s) {
+				continue;
+			}
+			if (crossfall.s == s) {
+				newCrossfalls.push(crossfall);
+			} else if (crossfall.s < s && nextCrossfallS > s) {
+				var sOffset = s - crossfall.s;
+				var newCrossfall = {};
+				newCrossfall.s = s;
+				newCrossfall.side = crossfall.side;
+				newCrossfall.a = crossfall.a + crossfall.b * sOffset + crossfall.c * Math.pow(sOffset, 2) + crossfall.d * Math.pow(sOffset, 3);
+				newCrossfall.b = crossfall.b + 2 * crossfall.c * sOffset + 3 * crossfall.d * Math.pow(sOffset, 2);
+				newCrossfall.c = crossfall.c + 3 * crossfall.d * sOffset;
+				newCrossfall.d = crossfall.d;
+				newCrossfalls.push(newCrossfall);
+			}
+			found = true;
+		}
+	}
+
+	return newCrossfalls;
+}
+
+function getLaneHeight(laneSectionStart, laneHeights, s, es) {
+
+	if (s >= es + 1E-4) {
+		throw Error('getCrossfall error: start-s >= endS + 1E-4');
+	}
+	
+	var newLaneHeights;
+	var innerHeights = [];
+	var outerHeights = [];
+	var found = false;
+
+	if (!laneHeights) {
+		return {inner: innerHeights, outer: outerHeights};
+	}
+
+	for (var i = 0; i < laneHeights.length; i++) {
+
+		var laneHeight = laneHeights[i];
+		var nextLaneHeightS = laneHeights[i + 1] ? laneHeights[i + 1].sOffset + laneSectionStart : es;
+
+		// if already fount the start of the returning superelevation, copy the rest superelevations as the succeeding ones until es
+		if (found) {
+			if (laneHeight.s < es) {
+				innerHeights.push({s: laneHeight.s, height: laneHeight.inner});
+				outerHeights.push({s: laneHeight.s, height: laneHeight.outer});
+			} else {
+				break;
+			}
+		}
+
+		if (!found) {
+			if (nextLaneHeightS <= s) {
+				continue;
+			}
+			if (laneHeight.sOffset + laneSectionStart == s || (laneHeight.sOffset + laneSectionStart < s && nextLaneHeightS > s)) {
+				innerHeights.push({s: laneHeight.sOffset + laneSectionStart, height: laneHeight.inner});
+				outerHeights.push({s: laneHeight.sOffset + laneSectionStart, height: laneHeight.outer});
+				found = true;
+			}
+		}
+	}
+
+	newLaneHeights = {inner: innerHeights, outer: outerHeights};
+
+	return newLaneHeights;
+}
+
+function createCustomFaceGeometry(lBorderPoints, rBorderPoints)  {
+
+	var geometry = new THREE.BufferGeometry();
+	var vertices = [];
+
+	// start from iBorder's first point, each loop draw 2 triangles representing the quadralateral iBorderP[i], iBorderP[i+1], oBorder[i+1], oBorder[i] 
+	for (var i = 0; i < Math.min(lBorderPoints.length, rBorderPoints.length) - 1; i++) {
+		vertices = vertices.concat([rBorderPoints[i].x, rBorderPoints[i].y, rBorderPoints[i].z]);
+		vertices = vertices.concat([rBorderPoints[i + 1].x, rBorderPoints[i + 1].y, rBorderPoints[i + 1].z]);
+		vertices = vertices.concat([lBorderPoints[i + 1].x, lBorderPoints[i + 1].y, lBorderPoints[i + 1].z]);
+
+		vertices = vertices.concat([rBorderPoints[i].x, rBorderPoints[i].y, rBorderPoints[i].z]);
+		vertices = vertices.concat([lBorderPoints[i + 1].x, lBorderPoints[i + 1].y, lBorderPoints[i + 1].z]);
+		vertices = vertices.concat([lBorderPoints[i].x, lBorderPoints[i].y, lBorderPoints[i].z]);
+	}
+
+	if (lBorderPoints.length < rBorderPoints.length) {
+
+		var lPoint = lBorderPoints[lBorderPoints.length - 1];
+
+		for (var i = lBorderPoints.length - 1; i < rBorderPoints.length - 1; i++) {
+			vertices = vertices.concat([lPoint.x, lPoint.y, lPoint.z]);
+			vertices = vertices.concat([rBorderPoints[i].x, rBorderPoints[i].y, rBorderPoints[i].z]);
+			vertices = vertices.concat([rBorderPoints[i + 1].x, rBorderPoints[i + 1].y, rBorderPoints[i + 1].z]);
+		}
+	}
+
+
+	if (lBorderPoints.length > rBorderPoints.length) {
+
+		var rPoint = rBorderPoints[rBorderPoints.length - 1];
+
+		for (var i = rBorderPoints.length - 1; i < lBorderPoints.length - 1; i++) {
+			vertices = vertices.concat([rPoint.x, rPoint.y, rPoint.z]);
+			vertices = vertices.concat([lBorderPoints[i + 1].x, lBorderPoints[i + 1].y, lBorderPoints[i + 1].z]);
+			vertices = vertices.concat([lBorderPoints[i].x, lBorderPoints[i].y, lBorderPoints[i].z]);
+		}
+	}
+
+	vertices = Float32Array.from(vertices)
+	// itemSize = 3 becuase there are 3 values (components) per vertex
+	geometry.addAttribute('position', new THREE.BufferAttribute(vertices, 3));
+
+	return geometry;
 }
 
 function drawCustomLine(points, color, zOffset) {
@@ -2177,22 +2288,22 @@ function drawCustomLine(points, color, zOffset) {
 	scene.add(mesh);
 }
 
-function drawLineAtPoint(x, y, hdg, color, zOffset) {
+function drawLineAtPoint(point, hdg, length, color) {
 
-	var points = [new THREE.Vector2(x, y), new THREE.Vector2(x + 10 * Math.cos(hdg), y + 10 * Math.sin(hdg))];
-	drawCustomLine(points, color, zOffset);
+	length = length || 10;
+	var points = [new THREE.Vector3(point.x, point.y, point.z), new THREE.Vector3(point.x + length * Math.cos(hdg), point.y + length * Math.sin(hdg), point.z)];
+	drawCustomLine(points, color);
 }
 
-function reversePoints(points) {
-
-	for (var i = 0; i < points.length / 2; i++) {
-		var tmp = points[i];
-		points[i] = points[points.length - 1 - i];
-		points[points.length - i - 1] = tmp;
-	}
+function drawSphereAtPoint(point, color) {
+	var geometry = new THREE.SphereBufferGeometry(0.08, 16, 16);
+	var material = new THREE.MeshBasicMaterial({color: color != undefined ? color : 0x00FF00});
+	var mesh = new THREE.Mesh(geometry, material);
+	mesh.position.set(point.x, point.y, point.z);
+	scene.add(mesh);
 }
 
-function drawRoadMark(laneSectionStart, oBorder, roadMarks, mesh) {
+function drawRoadMark(laneSectionStart, oBorder, elevationLateralProfile, outerHeights, roadMarks, mesh) {
 
 	if (roadMarks.length == 0) return;
 
@@ -2209,10 +2320,10 @@ function drawRoadMark(laneSectionStart, oBorder, roadMarks, mesh) {
 	var currentMarks = [];
 	for (var i = 0; i < roadMarks.length; i++) {
 		var roadMark = roadMarks[i];
-		var nextRoadMarkSOffset = roadMarks[i + 1] ? roadMarks[i + 1].sOffset : oBorder.s + oBorder.centralLength;
-		if (nextRoadMarkSOffset + laneSectionStart <= oBorder.s) {	
+		var nextRoadMarkSOffset = roadMarks[i + 1] ? roadMarks[i + 1].sOffset : oBorder.s + oBorder.centralLength - laneSectionStart;
+		if (nextRoadMarkSOffset + laneSectionStart <= oBorder.s || Math.abs(nextRoadMarkSOffset + laneSectionStart - oBorder.s) <= 1E-4) {	
 			continue;
-		} else if (oBorder.s + oBorder.centralLength <= roadMark.sOffset + laneSectionStart) {
+		} else if (oBorder.s + oBorder.centralLength <= roadMark.sOffset + laneSectionStart || Math.abs(oBorder.s + oBorder.centralLength - roadMark.sOffset - laneSectionStart) <= 1E-4) {
 			break;
 		} else {
 			currentMarks.push(roadMark);
@@ -2236,56 +2347,42 @@ function drawRoadMark(laneSectionStart, oBorder, roadMarks, mesh) {
 		var offsetC = oBorder.offset.c + 3 * oBorder.offset.d * sOffset;
 		var offsetD = oBorder.offset.d;
 
-		var shape, roadMarkMesh;
+		var subElevationLateralProfile = {};
+		subElevationLateralProfile.elevations = getElevation(elevationLateralProfile.elevations, Math.max(roadMark.sOffset + laneSectionStart, oBorder.s),  Math.min(nextRoadMarkSOffset + laneSectionStart, oBorder.s + oBorder.centralLength));
+		subElevationLateralProfile.superelevations = getSuperElevation(elevationLateralProfile.superelevations, Math.max(roadMark.sOffset + laneSectionStart, oBorder.s),  Math.min(nextRoadMarkSOffset + laneSectionStart, oBorder.s + oBorder.centralLength));
+		subElevationLateralProfile.crossfalls = getCrossfall(elevationLateralProfile.crossfalls, Math.max(roadMark.sOffset + laneSectionStart, oBorder.s),  Math.min(nextRoadMarkSOffset + laneSectionStart, oBorder.s + oBorder.centralLength));
+
+		var lBorderPoints, rBorderPoints;
+		var geometry, mesh;
 
 		switch(oBorder.type) {
 
 			case 'line':
 
-				if (oBorder.offset.b == 0 && oBorder.offset.c == 0 && oBorder.offset.d == 0) {
-					var sx = oBorder.x + sOffset * Math.cos(oBorder.hdg);
-					var sy = oBorder.y + sOffset * Math.sin(oBorder.hdg);
+				var sx = oBorder.centralX + sOffset * Math.cos(oBorder.hdg);
+				var sy = oBorder.centralY + sOffset * Math.sin(oBorder.hdg);
 
-					var v1 = new THREE.Vector2(sx + width / 2 * Math.cos(oBorder.hdg + Math.PI / 2), sy + width / 2 * Math.sin(oBorder.hdg + Math.PI / 2));
-					var v2 = new THREE.Vector2(sx + length * Math.cos(oBorder.hdg) + width / 2 * Math.cos(oBorder.hdg + Math.PI / 2), sy + length * Math.sin(oBorder.hdg) + width / 2 * Math.sin(oBorder.hdg + Math.PI / 2));
-					var v3 = new THREE.Vector2(sx + length * Math.cos(oBorder.hdg) + width / 2 * Math.cos(oBorder.hdg - Math.PI / 2), sy + length * Math.sin(oBorder.hdg) + width / 2 * Math.sin(oBorder.hdg - Math.PI / 2));
-					var v4 = new THREE.Vector2(sx + width / 2 * Math.cos(oBorder.hdg - Math.PI / 2), sy + width / 2 * Math.sin(oBorder.hdg - Math.PI / 2));
+				var lateralOffset;
 
-					shape = createRectShape(v1, v2, v3, v4);
-
-				} else {
-					var sx = oBorder.centralX + sOffset * Math.cos(oBorder.hdg);
-					var sy = oBorder.centralY + sOffset * Math.sin(oBorder.hdg);
-
-					var rBorderPoints = generateCubicPoints(sOffset, length, sx, sy, oBorder.hdg, oBorder.offset.a - width / 2, oBorder.offset.b, oBorder.offset.c, oBorder.offset.d);
-					var lBorderPoints = generateCubicPoints(sOffset, length, sx, sy, oBorder.hdg, oBorder.offset.a + width / 2, oBorder.offset.b, oBorder.offset.c, oBorder.offset.d);
-					reversePoints(lBorderPoints);
-
-					// handles the following in createCustomeLine function is not enough!
-					if (lBorderPoints[1].distanceTo(lBorderPoints[0]) < 1E-14) {
-						lBorderPoints.splice(1, 1);
-					}
-
-					//shape = createCustomShape(lBorderPoints, rBorderPoints)
-					// for road#509 geometry#4/5, after altering last 2 very adjacent points of outerBorder, the folloowing still causes triangulate error. DO NOT KNOW WHY?
-					shape = createCustomShape(rBorderPoints, lBorderPoints);	
-				}
+				lateralOffset = {a: offsetA - width / 2, b: offsetB, c: offsetC, d: offsetD};
+				rBorderPoints = generateCubicPoints(sOffset, length, subElevationLateralProfile, outerHeights, sx, sy, oBorder.hdg, lateralOffset);
 				
+				lateralOffset = {a: offsetA + width / 2, b: offsetB, c: offsetC, d: offsetD};
+				lBorderPoints = generateCubicPoints(sOffset, length, subElevationLateralProfile, outerHeights, sx, sy, oBorder.hdg, lateralOffset);
+
 				break;
 			case 'spiral':
 
 				/* NOTE: multiple roadMarks may happen on geometries besides 'line', e.g. road#91 geometry#1*/
-				/* NOTE: multiple roadMarks may happen on geometries besides 'line', e.g. road#91 geometry#1*/
 				var lateralOffset;
 
 				lateralOffset = {a: offsetA - width / 2, b: offsetB, c: offsetC, d: offsetD};
-				var rBorderPoints = generateSpiralPoints(oBorder.length, oBorder.centralX, oBorder.centralY, oBorder.hdg, oBorder.spiral.curvStart, oBorder.spiral.curvEnd, oBorder.ex, oBorder.ey, lateralOffset, sOffset, length).points;
+				rBorderPoints = generateSpiralPoints(oBorder.length, subElevationLateralProfile, outerHeights, oBorder.centralX, oBorder.centralY, oBorder.hdg, oBorder.spiral.curvStart, oBorder.spiral.curvEnd, oBorder.ex, oBorder.ey, lateralOffset, sOffset, length).points;
+				//drawCustomLine(rBorderPoints, 0xFF6666);
 
 				lateralOffset = {a: offsetA + width / 2, b: offsetB, c: offsetC, d: offsetD};
-				var lBorderPoints = generateSpiralPoints(oBorder.length, oBorder.centralX, oBorder.centralY, oBorder.hdg, oBorder.spiral.curvStart, oBorder.spiral.curvEnd, oBorder.ex, oBorder.ey, lateralOffset, sOffset, length).points;
-				reversePoints(lBorderPoints);
-
-				shape = createCustomShape(rBorderPoints, lBorderPoints);
+				lBorderPoints = generateSpiralPoints(oBorder.length, subElevationLateralProfile, outerHeights, oBorder.centralX, oBorder.centralY, oBorder.hdg, oBorder.spiral.curvStart, oBorder.spiral.curvEnd, oBorder.ex, oBorder.ey, lateralOffset, sOffset, length).points;
+				//drawCustomLine(lBorderPoints, 0x6666FF);
 
 				break;
 			case 'arc':
@@ -2306,27 +2403,51 @@ function drawRoadMark(laneSectionStart, oBorder, roadMarks, mesh) {
 				var lateralOffset;
 
 				lateralOffset = {a: offsetA - width / 2, b: offsetB, c: offsetC, d: offsetD};
-				var rBorderPoints = generateArcPoints(length, sx, sy, hdg, curvature, ex, ey, lateralOffset);
+				rBorderPoints = generateArcPoints(length, subElevationLateralProfile, outerHeights, sx, sy, hdg, curvature, ex, ey, lateralOffset).points;
 				lateralOffset = {a: offsetA + width / 2, b: offsetB, c: offsetC, d: offsetD};
-				var lBorderPoints = generateArcPoints(length, sx, sy, hdg, curvature, ex, ey, lateralOffset);
-				reversePoints(lBorderPoints);
-
-				shape = createCustomShape(rBorderPoints, lBorderPoints);
+				lBorderPoints = generateArcPoints(length, subElevationLateralProfile, outerHeights, sx, sy, hdg, curvature, ex, ey, lateralOffset).points;
 
 				break;
 		}
+			
+		if (roadMark.type == 'broken')
+			geometry = createDiscontiniousMeshGeometry(lBorderPoints, rBorderPoints)
+		else
+			geometry = createCustomFaceGeometry(lBorderPoints, rBorderPoints)
+		
+		mesh = new THREE.Mesh(geometry, colorMaterial[roadMark.color]);
+		mesh.position.set(0,0,0.001);
+		scene.add(mesh);
+	}
+}
 
-		try {
-			if (shape) {
-				roadMarkMesh = new THREE.Mesh(new THREE.ShapeBufferGeometry(shape), colorMaterial[roadMark.color]);
-				roadMarkMesh.position.set(0,0,0.001);
-				mesh.push(roadMarkMesh);
-			}
-		} catch(e) {
-			console.info(oBorder.type)
-			console.error(e.stack)
+function createDiscontiniousMeshGeometry(lBorderPoints, rBorderPoints) {
+
+	var dashPnts = 5;
+	var gapPnts = 3;
+
+	var geometry = new THREE.BufferGeometry();
+	var vertices = [];
+
+	for (var i = 0; i < Math.min(lBorderPoints.length, rBorderPoints.length) - 1; i++) {
+ 
+		// 0 -- 1 -- 2 -- 3 -- 4 -- 5 xx 6 xx 7 xx 8 -- 9 ...
+		if (i % (dashPnts + gapPnts) < dashPnts) {
+			vertices = vertices.concat([rBorderPoints[i].x, rBorderPoints[i].y, rBorderPoints[i].z]);
+			vertices = vertices.concat([rBorderPoints[i + 1].x, rBorderPoints[i + 1].y, rBorderPoints[i + 1].z]);
+			vertices = vertices.concat([lBorderPoints[i + 1].x, lBorderPoints[i + 1].y, lBorderPoints[i + 1].z]);
+
+			vertices = vertices.concat([rBorderPoints[i].x, rBorderPoints[i].y, rBorderPoints[i].z]);
+			vertices = vertices.concat([lBorderPoints[i + 1].x, lBorderPoints[i + 1].y, lBorderPoints[i + 1].z]);
+			vertices = vertices.concat([lBorderPoints[i].x, lBorderPoints[i].y, lBorderPoints[i].z]);
 		}
 	}
+
+	vertices = Float32Array.from(vertices)
+	// itemSize = 3 becuase there are 3 values (components) per vertex
+	geometry.addAttribute('position', new THREE.BufferAttribute(vertices, 3));
+
+	return geometry;
 }
 
 function generateLaneSectionReferenceLineMesh(road, laneSectionId) {
@@ -2341,116 +2462,290 @@ function generateLaneSectionReferenceLineMesh(road, laneSectionId) {
 
 		var geometry = geometries[i];
 		if (!geometry.offset) geometry.offset = {sOffset: 0, a: 0, b: 0, c: 0, d: 0};
-	
-		var referenceLineMesh = generateReferenceLineMesh(geometry);
+		
+		var elevations = getElevation(road.elevation, geometry.s, geometry.s + geometry.length);
+
+		var referenceLineMesh = generateReferenceLineMesh(geometry, elevations);
 		mesh.push(referenceLineMesh);
 	}
 	return mesh;
 }
 
-function generateReferenceLineMesh(geometry) {
+function generateReferenceLineMesh(geometry, elevations) {
 
 	var mesh;
+	var heights = null;
 	switch(geometry.type) {
 		case 'line':
-			if (!geometry.offset) scene.add(createLine(geometry.length, geometry.x, geometry.y, geometry.hdg));
-			
-			// if lane has offset, geometry also has an entry of offset after parsed from subDivideRoadGeometry, now assume laneOffset only exists on line geometry
-			if (geometry.offset) {
-		
-				// if offset only contians a constant, still draw a line
-				if (geometry.offset.b == 0 && geometry.offset.c == 0 && geometry.offset.d == 0) {
-					var x = geometry.centralX + Math.abs(geometry.offset.a) * Math.cos(geometry.hdg + Math.PI / 2 * Math.sign(geometry.offset.a));
-					var y = geometry.centralY + Math.abs(geometry.offset.a) * Math.sin(geometry.hdg + Math.PI / 2 * Math.sign(geometry.offset.a));
-					mesh = createLine(geometry.length, x, y, geometry.hdg);
-				} else {
-					// need to draw a cubic curve
-					mesh = createCubic(geometry.length, geometry.centralX, geometry.centralY, geometry.hdg, geometry.offset.a, geometry.offset.b, geometry.offset.c, geometry.offset.d);
-				}
-			}
+			mesh = createCubic(geometry.length, {elevations}, heights, geometry.centralX, geometry.centralY, geometry.hdg, geometry.offset);
 			break;
 		case 'spiral':
 			if (geometry.offset.a || geometry.offset.b || geometry.offset.c || geometry.offset.d) {
 				console.warn('reference line error (spiral): not surpport laneOffset on spiral or arc yet');
 			}
-			try {
-				mesh = createSpiral(geometry.length, geometry.x, geometry.y, geometry.hdg, geometry.spiral.curvStart, geometry.spiral.curvEnd, geometry.ex, geometry.ey, geometry.offset);
-			} catch(e) {
-				console.error(e.stack)
-			}
+			mesh = createSpiral(geometry.length, {elevations}, heights, geometry.x, geometry.y, geometry.hdg, geometry.spiral.curvStart, geometry.spiral.curvEnd, geometry.ex, geometry.ey, geometry.offset);
 			break;
 		case 'arc':
 			if (geometry.offset.a || geometry.offset.b || geometry.offset.c || geometry.offset.d) {
 				console.warn('reference line error (arc): not surpport laneOffset on spiral or arc yet');
 			}
-			mesh = createArc(geometry.length, geometry.x, geometry.y, geometry.hdg, geometry.arc.curvature, geometry.ex, geometry.ey, geometry.offset);
+			mesh = createArc(geometry.length, {elevations}, heights, geometry.x, geometry.y, geometry.hdg, geometry.arc.curvature, geometry.ex, geometry.ey, geometry.offset);
 			break;
 	}
 
-	// referec line's horizontal positon sets to 0.001 (higher than lanes and same as roadMarks' 0.001 to be on top to avoid covering)
+	// referec line's horizontal position sets to 0.001 (higher than lanes and same as roadMarks' 0.001 to be on top to avoid covering)
 	mesh.position.set(0, 0, 0.001)
 	return mesh;
 }
 
-function createLine(length, sx, sy, hdg) {
+function generateCubicPoints(offset, length, elevationLateralProfile, heights, sx, sy, hdg, lateralOffset) {
 
-	var material = new THREE.MeshBasicMaterial({color: 0xFF0000});
+	var x, y, z;
+	var points = [];
+	var tOffset = [];
+	var sOffset = [];	// each point's s distance from the begining of the cubic curve
+	var elevations, superelevations, crossfalls;
 
-	var z = 0;
-	var lineCurve = new THREE.LineCurve3(
-		new THREE.Vector3(sx, sy, z),
-		new THREE.Vector3(sx + length * Math.cos(hdg), sy + length * Math.sin(hdg), z)
-	);
-	var geometry = new THREE.Geometry();
-	geometry.vertices = lineCurve.getPoints(2);
+	if (elevationLateralProfile) {
+		elevations = elevationLateralProfile.elevations;
+		superelevations = elevationLateralProfile.superelevations;
+		crossfalls = elevationLateralProfile.crossfalls;
+	}
 
-	var line = new THREE.Line(geometry, material);
-	
-	return line;
+	if (!elevations)
+		elevations = [{s: 0, a: 0, b: 0, c: 0, d: 0}];
+	if (!superelevations)
+		superelevations = [{s: 0, a: 0, b: 0, c: 0, d: 0}];
+	if (!crossfalls)
+		crossfalls = [{s: 0, a: 0, b: 0, c: 0, d: 0}];
+
+	if (!heights)
+		heights = [{s: 0, height: 0}];
+	else if (heights.length == 0)
+		heights = [{s: 0, height: 0}];
+
+	var elevationS0 = elevations[0].s;
+	for (var i = 0; i < elevations.length; i++) {
+
+		var elevationS = elevations[i].s;
+		var nextElevationS = elevations[i + 1] ? elevations[i + 1].s : elevationS0 + length;
+		var elevationLength = nextElevationS - elevationS;
+
+		var ds = 0;
+		var elevationSOffset = elevationS - elevationS0;
+
+		do {
+
+			if (ds > elevationLength || Math.abs(ds - elevationLength) < 1E-4) {
+
+				if (Math.abs(elevationSOffset + elevationLength - length) < 1E-4) {
+					// if it reaches the end of the whole spiral, calculate it
+					ds = elevationLength;
+				} else {
+					// else ends current elevation segment, the next elevation segment's start will be the end of this one
+					ds += step;
+					break;
+				}
+			}
+
+			x = sx + (ds + elevationSOffset) * Math.cos(hdg);
+			y = sy + (ds + elevationSOffset) * Math.sin(hdg);
+			z = cubicPolynomial(ds, elevations[i].a, elevations[i].b, elevations[i].c, elevations[i].d);
+
+			points.push(new THREE.Vector3(x, y, z));
+			sOffset.push(ds + elevationSOffset);
+			if (lateralOffset) tOffset.push(cubicPolynomial(ds + elevationSOffset + offset, lateralOffset.a, lateralOffset.b, lateralOffset.c, lateralOffset.d));
+
+			ds += step;
+		
+		} while (ds < elevationLength + step);
+	}
+
+	// apply lateral offset along t, and apply superelevation, crossfalls if any; since lane height is not allowed for central lane, if it is defined for a lane, the lateral offset must exist
+	if (lateralOffset) {
+
+		var svector, tvector, hvector;
+
+		var superelevationIndex = 0;
+		var crossfallIndex = 0;
+		var heightIndex = 0;
+		var superelevation = superelevations[superelevationIndex];
+		var nextSuperElevation = superelevations[superelevationIndex + 1] || {s: elevationS0 + length};
+		var crossfall = crossfalls[crossfallIndex];
+		var nextCrossfall = crossfalls[crossfallIndex + 1] || {s: elevationS0 + length};
+		var height = heights[heightIndex];
+		var nextHeight = heights[heightIndex + 1] || {s: elevationS0 + length};
+
+		// shift points at central clothoid by tOffset to get the parallel curve points
+		for (var i = 0; i < points.length; i++) {
+
+			var point = points[i];
+			var t = tOffset[i];
+			var ds = sOffset[i];
+
+			// make sure no over flow happens for superelevations and crossfalls - should not be, since sOffset won't exceeds length
+			if (nextSuperElevation.s <= ds + elevationS0 || Math.abs(nextSuperElevation.s - ds - elevationS0) < 1E-4) {
+
+				// if not reaches the end of the cubic line yet
+				if (elevationS0 + length - nextSuperElevation.s >= 1E-4) {
+					superelevationIndex++;
+					superelevation = superelevations[superelevationIndex];
+					nextSuperElevation = superelevations[superelevationIndex + 1] || {s: elevationS0 + length};
+				}
+			}
+
+			if (nextCrossfall.s <= ds + elevationS0 || Math.abs(nextCrossfall.s - ds - elevationS0) < 1E-4) {
+
+				// if not reaches the end of the cubic line yet
+				if (elevationS0 + length - nextCrossfall.s >= 1E-4) {
+					crossfallIndex++;
+					crossfall = crossfalls[crossfallIndex];
+					nextCrossfall = crossfalls[crossfallIndex + 1] || {s: elevationS0 + length};
+				}
+			}
+
+			if (nextHeight.s <= ds + elevationS0 || Math.abs(nextHeight.s - ds - elevationS0) < 1E-4) {
+
+				// if not reaches the end of the cubic line yet
+				if (elevationS0 + length - nextHeight.s >= 1E-4) {
+					heightIndex++;
+					height = heights[heightIndex];
+					nextHeight = heights[heightIndex + 1] || {s: elevationS0 + length};
+				}
+			}
+
+			svector = new THREE.Vector3(1, 0, 0);
+			svector.applyAxisAngle(new THREE.Vector3(0, 0, 1), hdg);
+			tvector = svector.clone();
+			tvector.cross(new THREE.Vector3(0, 0, -1));
+
+			if (t != 0) {
+				var superelevationAngle = cubicPolynomial(ds + elevationS0 - superelevation.s, superelevation.a, superelevation.b, superelevation.c, superelevation.d);
+				var crossfallAngle = cubicPolynomial(ds + elevationS0 - crossfall.s, crossfall.a, crossfall.b, crossfall.c, crossfall.d);
+
+				tvector.applyAxisAngle(svector, superelevationAngle);
+
+				if (!((t > 0 && crossfall.side == 'right') || (t < 0 && crossfall.side == 'left'))) {
+					// Positive crossfall results in a road surface "falling" from the reference line to the outer boundary
+					tvector.applyAxisAngle(svector, crossfallAngle * (- Math.sign(t)));
+				}
+			}
+
+			hvector = svector.clone();
+			hvector.cross(tvector);
+
+			tvector.multiplyScalar(t);
+			hvector.multiplyScalar(height.height);
+
+			point.x += tvector.x + hvector.x;
+			point.y += tvector.y + hvector.y;
+			point.z += tvector.z + hvector.z;
+		}
+	}
+
+	return points;
 }
 
-function generateSpiralPoints(length, sx, sy, hdg, curvStart, curvEnd, ex, ey, lateralOffset, subOffset, subLength) {
+function createCubic(length, elevationLateralProfile, heights, sx, sy, hdg, lateralOffset) {
+
+	// since geometry is divided on laneOffset, each geometry starts at offset = 0 along a laneOffset (ds starts from 0) if geometry offset exists, when createCubic is called
+	var offset = 0;
+	var points = generateCubicPoints(offset, length, elevationLateralProfile, heights , sx, sy, hdg, lateralOffset);
+	var geometry = new THREE.Geometry();
+	geometry.vertices = points;
+	var material = new THREE.MeshBasicMaterial({color: 0xFF0000});
+	var cubic = new THREE.Line(geometry, material);
+
+	return cubic;
+}
+
+function generateSpiralPoints(length, elevationLateralProfile, heights, sx, sy, hdg, curvStart, curvEnd, ex, ey, lateralOffset, subOffset, subLength) {
 
 	var points = [];
 	var heading = [];
 	var tOffset = [];
+	var sOffset = [];	// sOffset from the beginning of the curve
 	var k = (curvEnd - curvStart) / length;
-	
+	var elevations, superelevations, crossfalls;
+
+	if (elevationLateralProfile) {
+		elevations = elevationLateralProfile.elevations;
+		superelevations = elevationLateralProfile.superelevations;
+		crossfalls = elevationLateralProfile.crossfalls;
+	}
+
 	var theta = hdg; 	// current heading direction
-	var preS = 0;
+
+	if (!elevations)
+		elevations = [{s: 0, a: 0, b: 0, c: 0, d: 0}];
+	if (!superelevations)
+		superelevations = [{s: 0, a: 0, b: 0, c: 0, d: 0}];
+	if (!crossfalls)
+		crossfalls = [{s: 0, a: 0, b: 0, c: 0, d: 0}];
+
+	if (!heights)
+		heights = [{s: 0, height: 0}];
+	else if (heights.length == 0)
+		heights = [{s: 0, height: 0}];
+
+	// s ranges between [0, length]
 	var s = 0;
+	var preS = 0;
+	var elevationS0 = elevations[0].s;
+	
+	var point, x, y, z;
 
-	var reverse = false;
+	for (var i = 0; i < elevations.length; i++) {
 
-	var point, x, y;
+		var elevationS = elevations[i].s;
+		var nextElevationS = elevations[i + 1] ? elevations[i + 1].s : elevationS0 + length;
+		var elevationLength = nextElevationS - elevationS;
 
-	do {
+		
+		var elevationSOffset = elevationS - elevationS0;
 
-		if (s == 0) {	
-			points.push(new THREE.Vector3(sx, sy, 0));
-			heading.push(theta);
-			if (lateralOffset) tOffset.push(lateralOffset.a);
+		s = elevationSOffset;
+		do {
+
+			if (s == 0) {
+				points.push(new THREE.Vector3(sx, sy, elevations[0].a));
+				heading.push(theta);
+				if (lateralOffset) tOffset.push(lateralOffset.a);
+				sOffset.push(s);
+				s += step;
+				continue;
+			}
+
+			if (s > elevationSOffset + elevationLength || Math.abs(s - elevationSOffset - elevationLength) < 1E-4) {
+
+				if (Math.abs(elevationSOffset + elevationLength - length) < 1E-4) {
+					// if elevation seg reaches the end of the whole spiral, calculate it
+					s = elevationSOffset + elevationLength;
+				} else {
+					// else ends current elevation segment, the next elevation segment's start will be the end of this one
+					s += step;
+					break;
+				}
+			}
+
+			var curvature = (s + preS) * 0.5 * k + curvStart;
+			var prePoint = points[points.length - 1];
+			
+			x = prePoint.x + (s - preS) * Math.cos(theta + curvature * (s - preS) / 2);
+			y = prePoint.y + (s - preS) * Math.sin(theta + curvature * (s - preS) / 2);
+			z = cubicPolynomial(s - elevationSOffset, elevations[i].a, elevations[i].b, elevations[i].c, elevations[i].d);
+
+			theta += curvature * (s - preS);
+			preS = s;
 			s += step;
-			continue;
-		}
+			
+			points.push(new THREE.Vector3(x, y, z));
+			heading.push(theta);
+			if (lateralOffset) tOffset.push(cubicPolynomial(preS, lateralOffset.a, lateralOffset.b, lateralOffset.c, lateralOffset.d));
+			sOffset.push(preS);
 
-		if (s > length || Math.abs(s - length) < 1E-4) s = length;
-
-		var curvature = (s + preS) * 0.5 * k + curvStart;
-		var prePoint = points[points.length - 1];
-		
-		x = prePoint.x + (s - preS) * Math.cos(theta + curvature * (s - preS) / 2);
-		y = prePoint.y + (s - preS) * Math.sin(theta + curvature * (s - preS) / 2);
-
-		theta += curvature * (s - preS);
-		preS = s;
-		s += step;
-		
-		points.push(new THREE.Vector3(x, y, 0));
-		heading.push(theta);
-		if (lateralOffset) tOffset.push(cubicPolynomial(preS, lateralOffset.a, lateralOffset.b, lateralOffset.c, lateralOffset.d));
-		
-	} while (s < length + step);
+		} while (s < elevationSOffset + elevationLength + step);
+	}
 
 	// fix the error by altering the end point to he connecting road's start
 	if (typeof ex == 'number' && typeof ey == 'number') {
@@ -2459,15 +2754,28 @@ function generateSpiralPoints(length, sx, sy, hdg, curvStart, curvEnd, ex, ey, l
 		points[points.length - 1].x = ex;
 		points[points.length - 1].y = ey;
 
+		var lastStep = points[points.length - 1].distanceTo(points[points.length - 2]);
 		// distrubte error across sample points for central clothoid 		
 		for (var i = points.length - 2; i > 0; i--) {
-			points[i].x += delta.x * i / points.length;
-			points[i].y += delta.y * i / points.length;
+			points[i].x += delta.x * sOffset[i] / length;
+			points[i].y += delta.y * sOffset[i] / length;
 		}
 	}
 
 	// apply lateralOffset if any
 	if (lateralOffset) {
+
+		var svector, tvector, hvector;
+
+		var superelevationIndex = 0;
+		var crossfallIndex = 0;
+		var heightIndex = 0;
+		var superelevation = superelevations[superelevationIndex];
+		var nextSuperElevation = superelevations[superelevationIndex + 1] || {s: elevationS0 + length};
+		var crossfall = crossfalls[crossfallIndex];
+		var nextCrossfall = crossfalls[crossfallIndex + 1] || {s: elevationS0 + length};
+		var height = heights[heightIndex];
+		var nextHeight = heights[heightIndex + 1] || {s: elevationS0 + length};
 
 		// shift points at central clothoid by tOffset to get the parallel curve points
 		for (var i = 0; i < points.length; i++) {
@@ -2475,42 +2783,135 @@ function generateSpiralPoints(length, sx, sy, hdg, curvStart, curvEnd, ex, ey, l
 			var point = points[i];
 			var currentHeading = heading[i];
 			var t = tOffset[i];
+			var ds = sOffset[i];
 
-			// vector in s-t, then rotate to x-y by -currentHeading, then traslate to point.x, point.y
-			point.x += Math.abs(t) * Math.cos(currentHeading + Math.PI / 2 * Math.sign(t));
-			point.y += Math.abs(t) * Math.sin(currentHeading + Math.PI / 2 * Math.sign(t));
+			// make sure no over flow happens for superelevations and crossfalls - should not be, since sOffset won't exceeds length
+			if (nextSuperElevation.s <= ds + elevationS0 || Math.abs(nextSuperElevation.s - ds - elevationS0) < 1E-4) {
+
+				// if not reaches the end of the cubic line yet
+				if (elevationS0 + length - nextSuperElevation.s >= 1E-4) {
+					superelevationIndex++;
+					superelevation = superelevations[superelevationIndex];
+					nextSuperElevation = superelevations[superelevationIndex + 1] || {s: elevationS0 + length};				
+				}
+			}
+
+			if (nextCrossfall.s <= ds + elevationS0 || Math.abs(nextCrossfall.s - ds - elevationS0) < 1E-4) {
+
+				// if not reaches the end of the cubic line yet
+				if (elevationS0 + length - nextCrossfall.s >= 1E-4) {
+					crossfallIndex++;
+					crossfall = crossfalls[crossfallIndex];
+					nextCrossfall = crossfalls[crossfallIndex + 1] || {s: elevationS0 + length};
+				}
+			}
+
+			if (nextHeight.s <= ds + elevationS0 || Math.abs(nextHeight.s - ds - elevationS0) < 1E-4) {
+
+				// if not reaches the end of the cubic line yet
+				if (elevationS0 + length - nextHeight.s >= 1E-4) {
+					heightIndex++;
+					height = heights[heightIndex];
+					nextHeight = heights[heightIndex + 1] || {s: elevationS0 + length};
+				}
+			}
+
+			svector = new THREE.Vector3(1, 0, 0);
+			svector.applyAxisAngle(new THREE.Vector3(0, 0, 1), currentHeading);
+			tvector = svector.clone();
+			tvector.cross(new THREE.Vector3(0, 0, -1));
+
+			if (t != 0) {
+				var superelevationAngle = cubicPolynomial(ds + elevationS0 - superelevation.s, superelevation.a, superelevation.b, superelevation.c, superelevation.d);
+				var crossfallAngle = cubicPolynomial(ds + elevationS0 - crossfall.s, crossfall.a, crossfall.b, crossfall.c, crossfall.d);
+
+				tvector.applyAxisAngle(svector, superelevationAngle);
+
+				if (!((t > 0 && crossfall.side == 'right') || (t < 0 && crossfall.side == 'left'))) {
+					// Positive crossfall results in a road surface "falling" from the reference line to the outer boundary
+					tvector.applyAxisAngle(svector, crossfallAngle * (- Math.sign(t)));
+				}
+			}
+
+			hvector = svector.clone();
+			hvector.cross(tvector);
+
+			tvector.multiplyScalar(t);
+			hvector.multiplyScalar(height.height);
+
+			point.x += tvector.x + hvector.x;
+			point.y += tvector.y + hvector.y;
+			point.z += tvector.z + hvector.z;
 		}
 	}
 
-	// if  needs take only part of the segment
+	// if  needs take only part of the segment -- need changing due to introducing multiple elevations
 	if (typeof subOffset == 'number' && typeof subLength == 'number') {
 		
 		var p1, p2;
 		var startPoint, endPoint;
+		var startIndex, endIndex, startIndexDiff, endIndexDiff;
+		var startIndexFound, endIndexFound;
+
+		startIndex = 0;
+		endIndex = 0;
+		startIndexFound = false;
+		endIndexFound = false;
 
 		// extract the sample points for the sub spiral
-		var startIndex = Math.floor(subOffset / step);
-		var startIndexDiff = subOffset / step - startIndex;
+		for (var i = 0; i < elevations.length; i++) {
+			var elevationS = elevations[i].s;
+			var nextElevationS = elevations[i + 1] ? elevations[i + 1].s : elevationS0 + length;
 
-		if (subOffset + subLength < length - 1E-4) {
-			var endIndex = Math.floor(subOffset + subLength / step);
-			var endIndexDiff = (subOffset + subLength) / step - endIndex;
-		} else {
-			var endIndex = points.length - 1;
-			var endIndexDiff = 0;
+			if (!startIndexFound) {
+				if (nextElevationS <= elevationS0 + subOffset - 1E-4) {
+					startIndex += Math.ceil((nextElevationS - elevationS) / step - 1);
+				} else if (Math.abs(elevationS - (elevationS0 + subOffset)) < 1E-4) {
+					if (Math.abs(elevationS - elevationS0) < 1E-4) {
+						startIndex = 0;
+						startIndexDiff = 0;
+					} else {
+						startIndex += 1;
+						startIndexDiff = 0;
+					}
+					startIndexFound = true;
+				} else if (elevationS < elevationS0 + subOffset) {
+					startIndex += Math.floor((elevationS0 + subOffset - elevationS) / step);
+					startIndexDiff = (elevationS0 + subOffset - elevationS) / step - Math.floor((elevationS0 + subOffset - elevationS) / step);
+					startIndexFound = true;
+				}
+			}
+
+			if (!endIndexFound) {
+				if (nextElevationS <= elevationS0 + subOffset + subLength - 1E-4) {
+					endIndex += Math.ceil((nextElevationS - elevationS) / step);
+				} else if (Math.abs(nextElevationS - (elevationS0 + subOffset + subLength)) < 1E-4) {
+					endIndex += Math.ceil((nextElevationS - elevationS) / step);
+					endIndexDiff = 0;
+					endIndexFound = true;
+				} else if (elevationS < elevationS0 + subOffset + subLength) {
+					endIndex += Math.floor((elevationS0 + subOffset + subLength - elevationS) / step);
+					endIndexDiff = (elevationS0 + subOffset + subLength - elevationS) / step - Math.floor((elevationS0 + subOffset + subLength - elevationS) / step);
+					endIndexFound = true;
+				} else {
+					console.log(elevationS, elevationS0 + subOffset + subLength)
+				}
+			}
+
+			if (startIndexFound && endIndexFound) break;
 		}
 
 		// extract points from startIndex + diff to endIndex + diff
 		p1 = points[startIndex];
 		p2 = points[startIndex + 1];
-		startPoint = new THREE.Vector2(p1.x + startIndexDiff / step * (p2.x - p1.x), p1.y + startIndexDiff / step * (p2.y - p1.y));
+		startPoint = new THREE.Vector3(p1.x + startIndexDiff / step * (p2.x - p1.x), p1.y + startIndexDiff / step * (p2.y - p1.y), p1.z + startIndexDiff / step * (p2.z - p1.z));
 		points[startIndex] = startPoint;
 		heading[startIndex] = heading[startIndex] + (heading[startIndex + 1] - heading[startIndex]) * startIndexDiff / step;
 
 		if (endIndexDiff > 0) {
 			p1 = points[endIndex];
-			p2 = points[endIndex + 1] || new THREE.Vector2();
-			endPoint = new THREE.Vector2(p1.x + endIndexDiff / step * (p2.x - p1.x), p1.y + endIndexDiff / step * (p2.y - p1.y));
+			p2 = points[endIndex + 1];
+			endPoint = new THREE.Vector3(p1.x + endIndexDiff / step * (p2.x - p1.x), p1.y + endIndexDiff / step * (p2.y - p1.y), p1.z + endIndexDiff / step * (p2.z - p1.z));
 			endIndex = endIndex + 1;
 			points[endIndex] = endPoint;
 			heading[endIndex] = heading[endIndex + 1] ? heading[endIndex] + (heading[endIndex + 1] - heading[endIndex]) * endIndexDiff / step : heading[endIndex];
@@ -2525,159 +2926,658 @@ function generateSpiralPoints(length, sx, sy, hdg, curvStart, curvEnd, ex, ey, l
 	return {points: points, heading: heading};
 }
 
-function createSpiral(length, sx, sy, hdg, curvStart, curvEnd, ex, ey, tOffset, subOffset, subLength) {
+function createSpiral(length, elevationLateralProfile, heights, sx, sy, hdg, curvStart, curvEnd, ex, ey, lateralOffset) {
 
 	var material = new THREE.MeshBasicMaterial({color: 0xFFC125});
-	var points = generateSpiralPoints(length, sx, sy, hdg, curvStart, curvEnd, ex, ey, tOffset, subOffset, subLength).points;
-	var path = new THREE.Path(points);
-	var geometry = path.createPointsGeometry(points.length);
+	var points = generateSpiralPoints(length, elevationLateralProfile, heights, sx, sy, hdg, curvStart, curvEnd, ex, ey, lateralOffset).points;
+	var geometry = new THREE.Geometry();
+	geometry.vertices = points;	
 	var spiral = new THREE.Line(geometry, material);
-
+	
 	return spiral;
 }
 
-function generateArcPoints(length, sx, sy, hdg, curvature, ex, ey, lateralOffset) {
+function generateArcPoints(length, elevationLateralProfile, heights, sx, sy, hdg, curvature, ex, ey, lateralOffset, subOffset, subLength) {
 
 	var points = [];
 	var heading = [];
 	var tOffset = [];
+	var sOffset = [];	// sOffset from the beginning of the curve, used for distribute error
 	var currentHeading = hdg;
-	var preS = 0;
+	var prePoint, x, y, z;
+
+	var elevations, superelevations, crossfalls;
+
+	if (elevationLateralProfile) {
+		elevations = elevationLateralProfile.elevations;
+		superelevations = elevationLateralProfile.superelevations;
+		crossfalls = elevationLateralProfile.crossfalls;
+	}
+
+	if (!elevations)
+		elevations = [{s: 0, a: 0, b: 0, c: 0, d: 0}];
+	if (!superelevations)
+		superelevations = [{s: 0, a: 0, b: 0, c: 0, d: 0}];
+	if (!crossfalls)
+		crossfalls = [{s: 0, a: 0, b: 0, c: 0, d: 0}];
+
+	if (!heights)
+		heights = [{s: 0, height: 0}];
+	else if (heights.length == 0)
+		heights = [{s: 0, height: 0}];
+
+	// s ranges between [0, length]
 	var s = 0;
-	var prePoint, x, y;
+	var preS = 0;
+	var elevationS0 = elevations[0].s;
 
-	do {
+	for (var i = 0; i < elevations.length; i++) {
 
-		if (s == 0) {
-			points.push(new THREE.Vector2(sx, sy));
-			heading.push(currentHeading);
-			if (lateralOffset) tOffset.push(lateralOffset.a);
+		var elevationS = elevations[i].s;
+		var nextElevationS = elevations[i + 1] ? elevations[i + 1].s : elevationS0 + length;
+		var elevationLength = nextElevationS - elevationS;
+
+		var elevationSOffset = elevationS - elevationS0;
+		//console.log('elevation #', i, 'start at', elevationSOffset)
+		
+		s = elevationSOffset;
+		do {
+			
+			if (s == 0) {
+				points.push(new THREE.Vector3(sx, sy, elevations[0].a));		
+				heading.push(currentHeading);
+				if (lateralOffset) tOffset.push(lateralOffset.a);
+				sOffset.push(s);
+				s += step;
+				continue;
+			}
+
+			if (s > elevationSOffset + elevationLength || Math.abs(s - elevationSOffset - elevationLength) < 1E-4) {
+			
+				if (Math.abs(elevationSOffset + elevationLength - length) < 1E-4) {
+					// if elevation seg reaches the end of the whole spiral, calculate it
+					s = elevationSOffset + elevationLength;
+				} else {
+					// else ends current elevation segment, the next elevation segment's start will be the end of this one			
+					s += step;
+					break;
+				}
+			}
+
+			prePoint = points[points.length - 1];
+
+			x = prePoint.x + (s - preS) * Math.cos(currentHeading + curvature * (s - preS) / 2);
+			y = prePoint.y + (s - preS) * Math.sin(currentHeading + curvature * (s - preS) / 2);
+			z = cubicPolynomial(s - elevationSOffset, elevations[i].a, elevations[i].b, elevations[i].c, elevations[i].d);
+
+			currentHeading += curvature * (s - preS);
+			
+			preS = s;
 			s += step;
-			continue;
-		}
-		
-		if (s > length || Math.abs(s - length) < 1E-4) s = length;
 
-		prePoint = points[points.length - 1];
-		
-		x = prePoint.x + (s - preS) * Math.cos(currentHeading + curvature * (s - preS) / 2);
-		y = prePoint.y + (s - preS) * Math.sin(currentHeading + curvature * (s - preS) / 2);
+			points.push(new THREE.Vector3(x, y, z));
+			heading.push(currentHeading);
+			if (lateralOffset) tOffset.push(cubicPolynomial(preS, lateralOffset.a, lateralOffset.b, lateralOffset.c, lateralOffset.d));
+			sOffset.push(preS);
 
-		currentHeading += curvature * (s - preS);
-		preS = s;
-		s += step;
-
-		points.push(new THREE.Vector2(x, y));
-		heading.push(currentHeading);
-		if (lateralOffset) tOffset.push(cubicPolynomial(preS, lateralOffset.a, lateralOffset.b, lateralOffset.c, lateralOffset.d));
-
-	} while (s < length + step);
+		} while (s < elevationSOffset + elevationLength + step);
+	}
 
 	// fix the error by altering the end point to he connecting road's start
 	if (typeof ex == 'number' && typeof ey == 'number') {
 
-		var delta = new THREE.Vector2(ex - points[points.length - 1].x, ey - points[points.length - 1].y);
+		var delta = new THREE.Vector3(ex - points[points.length - 1].x, ey - points[points.length - 1].y, 0);
 		points[points.length - 1].x = ex;
 		points[points.length - 1].y = ey;
 
-		// distrubte error across sample points for central clothoid
-		for (var i = points.length - 2; i  > -1; i--) {
-			points[i].x += delta.x * i / points.length;
-			points[i].y += delta.y * i / points.length;
-
+		// distrubte error across sample points for central clothoid 		
+		for (var i = points.length - 2; i > -1; i--) {
+			points[i].x += delta.x * sOffset[i] / length;
+			points[i].y += delta.y * sOffset[i] / length;
 		}
 	}
 
-	// apply lateral offset along t
+	// apply lateral offset along t, and apply superelevation, crossfalls if any
 	if (lateralOffset) {
+
+		var svector, tvector;
+
+		var superelevationIndex = 0;
+		var crossfallIndex = 0;
+		var heightIndex = 0;
+		var superelevation = superelevations[superelevationIndex];
+		var nextSuperElevation = superelevations[superelevationIndex + 1] || {s: elevationS0 + length};
+		var crossfall = crossfalls[crossfallIndex];
+		var nextCrossfall = crossfalls[crossfallIndex + 1] || {s: elevationS0 + length};
+		var height = heights[heightIndex];
+		var nextHeight = heights[heightIndex + 1] || {s: elevationS0 + length};
 
 		// shift points at central clothoid by tOffset to get the parallel curve points
 		for (var i = 0; i < points.length; i++) {
 
 			var point = points[i];
-			currentHeading = heading[i];
 			var t = tOffset[i];
+			var currentHeading = heading[i];
+			var ds = sOffset[i];
 
-			// vector in s-t, then rotate to x-y by -currentHeading, then traslate to point.x, point.y
-			point.x += Math.abs(t) * Math.cos(currentHeading + Math.PI / 2 * Math.sign(t));
-			point.y += Math.abs(t) * Math.sin(currentHeading + Math.PI / 2 * Math.sign(t));
+			// make sure no over flow happens for superelevations and crossfalls - should not be, since sOffset won't exceeds length
+			if (nextSuperElevation.s <= ds + elevationS0 || Math.abs(nextSuperElevation.s - ds - elevationS0) < 1E-4) {
+
+				// if not reaches the end of the cubic line yet
+				if (elevationS0 + length - nextSuperElevation.s >= 1E-4) {
+					superelevationIndex++;
+					superelevation = superelevations[superelevationIndex];
+					nextSuperElevation = superelevations[superelevationIndex + 1] || {s: elevationS0 + length};
+				}
+			}
+
+			if (nextCrossfall.s <= ds + elevationS0 || Math.abs(nextCrossfall.s - ds - elevationS0) < 1E-4) {
+
+				// if not reaches the end of the cubic line yet
+				if (elevationS0 + length - nextCrossfall.s >= 1E-4) {
+					crossfallIndex++;
+					crossfall = crossfalls[crossfallIndex];
+					nextCrossfall = crossfalls[crossfallIndex + 1] || {s: elevationS0 + length};
+				}
+			}
+
+			if (nextHeight.s <= ds + elevationS0 || Math.abs(nextHeight.s - ds - elevationS0) < 1E-4) {
+
+				// if not reaches the end of the cubic line yet
+				if (elevationS0 + length - nextHeight.s >= 1E-4) {
+					heightIndex++;
+					height = heights[heightIndex];
+					nextHeight = heights[heightIndex + 1] || {s: elevationS0 + length};
+				}
+			}
+
+			svector = new THREE.Vector3(1, 0, 0);
+			svector.applyAxisAngle(new THREE.Vector3(0, 0, 1), currentHeading);
+			tvector = svector.clone();
+			tvector.cross(new THREE.Vector3(0, 0, -1));
+
+			if (t != 0) {
+				var superelevationAngle = cubicPolynomial(ds + elevationS0 - superelevation.s, superelevation.a, superelevation.b, superelevation.c, superelevation.d);
+				var crossfallAngle = cubicPolynomial(ds + elevationS0 - crossfall.s, crossfall.a, crossfall.b, crossfall.c, crossfall.d);
+
+				tvector.applyAxisAngle(svector, superelevationAngle);
+
+				if (!((t > 0 && crossfall.side == 'right') || (t < 0 && crossfall.side == 'left'))) {
+					// Positive crossfall results in a road surface "falling" from the reference line to the outer boundary
+					tvector.applyAxisAngle(svector, crossfallAngle * (- Math.sign(t)));
+				}
+			}
+
+			hvector = svector.clone();
+			hvector.cross(tvector);
+
+			tvector.multiplyScalar(t);
+			hvector.multiplyScalar(height.height);
+
+			point.x += tvector.x + hvector.x;
+			point.y += tvector.y + hvector.y;
+			point.z += tvector.z + hvector.z;
 		}
 	}
 
-	return points;
+	// if  needs take only part of the segment -- need changing due to introducing multiple elevations
+	if (typeof subOffset == 'number' && typeof subLength == 'number') {
+
+		var p1, p2;
+		var startPoint, endPoint;
+		var startIndex, endIndex, startIndexDiff, endIndexDiff;
+		var startIndexFound, endIndexFound;
+
+		startIndex = 0;
+		endIndex = 0;
+		startIndexFound = false;
+		endIndexFound = false;
+
+		// extract the sample points for the sub spiral
+		for (var i = 0; i < elevations.length; i++) {
+			var elevationS = elevations[i].s;
+			var nextElevationS = elevations[i + 1] ? elevations[i + 1].s : elevationS0 + length;
+
+			if (!startIndexFound) {
+				if (nextElevationS <= elevationS0 + subOffset - 1E-4) {
+					startIndex += Math.ceil((nextElevationS - elevationS) / step - 1);
+				} else if (Math.abs(elevationS - (elevationS0 + subOffset)) < 1E-4) {
+					if (Math.abs(elevationS - elevationS0) < 1E-4) {
+						startIndex = 0;
+						startIndexDiff = 0;
+					} else {
+						startIndex += 1;
+						startIndexDiff = 0;
+					}
+					startIndexFound = true;
+				} else if (elevationS < elevationS0 + subOffset) {
+					startIndex += Math.floor((elevationS0 + subOffset - elevationS) / step);
+					startIndexDiff = (elevationS0 + subOffset - elevationS) / step - Math.floor((elevationS0 + subOffset - elevationS) / step);
+					startIndexFound = true;
+				}
+			}
+
+			if (!endIndexFound) {
+				if (nextElevationS + 1E-4 <= elevationS0 + subOffset + subLength) {
+					endIndex += Math.ceil((nextElevationS - elevationS) / step);
+				} else if (Math.abs(nextElevationS - (elevationS0 + subOffset + subLength)) < 1E-4) {
+					endIndex += Math.ceil((nextElevationS - elevationS) / step);
+					endIndexDiff = 0;
+					endIndexFound = true;
+				} else if (elevationS < elevationS0 + subOffset + subLength) {
+					endIndex += Math.floor((elevationS0 + subOffset + subLength - elevationS) / step);
+					endIndexDiff = (elevationS0 + subOffset + subLength - elevationS) / step - Math.floor((elevationS0 + subOffset + subLength -elevationS ) / step);
+					endIndexFound = true;
+				}
+			}
+
+			if (startIndexFound && endIndexFound) break;
+		}
+		
+		//console.log('extracting arc from', elevationS0 + subOffset, 'to', elevationS0 + subOffset + subLength, '\nstartIndex', startIndex, 'startIndexDiff', startIndexDiff, '\nendIndex', endIndex, 'endIndexDiff', endIndexDiff)
+		
+		// extract points from startIndex + diff to endIndex + diff
+		p1 = points[startIndex];
+		p2 = points[startIndex + 1];
+		startPoint = new THREE.Vector3(p1.x + startIndexDiff / step * (p2.x - p1.x), p1.y + startIndexDiff / step * (p2.y - p1.y), p1.z + startIndexDiff / step * (p2.z - p1.z));
+		points[startIndex] = startPoint;
+		heading[startIndex] = heading[startIndex] + (heading[startIndex + 1] - heading[startIndex]) * startIndexDiff / step;
+
+		if (endIndexDiff > 0) {
+			p1 = points[endIndex];
+			p2 = points[endIndex + 1];
+			endPoint = new THREE.Vector3(p1.x + endIndexDiff / step * (p2.x - p1.x), p1.y + endIndexDiff / step * (p2.y - p1.y), p1.z + endIndexDiff / step * (p2.z - p1.z));
+			endIndex = endIndex + 1;
+			points[endIndex] = endPoint;
+			heading[endIndex] = heading[endIndex + 1] ? heading[endIndex] + (heading[endIndex + 1] - heading[endIndex]) * endIndexDiff / step : heading[endIndex];
+		}
+		
+		//console.log('start heading', heading[startIndex], 'end heading', heading[endIndex])
+		
+		points.splice(endIndex + 1);
+		points.splice(0, startIndex);
+		heading.splice(endIndex + 1);
+		heading.splice(0, startIndex);
+	}
+
+	return {points: points, heading: heading};
 }
 
-function createArc(length, sx, sy, hdg, curvature, ex, ey, lateralOffset) {
+function createArc(length, elevationLateralProfile, heights, sx, sy, hdg, curvature, ex, ey, lateralOffset) {
 	
 	var material = new THREE.MeshBasicMaterial({color: 0x3A5FCD});
-	/*
-	var radius = 1 / Math.abs(curvature);
-	var rotation = hdg - Math.sign(curvature) * Math.PI / 2;
-
-	var curve = new THREE.EllipseCurve(
-		//0, 0,							// ax, ay
-		sx - radius * Math.cos(rotation), sy - radius * Math.sin(rotation),
-		radius, radius,					// xRadius, yRadius
-		0, length * curvature,			// aStartAngle, aEndAngle
-		curvature > 0 ? false : true,	// aClockwise
-		rotation						// aRotation		
-	);
-
-	var path = new THREE.Path(curve.getPoints(50));
-	var geometry = path.createPointsGeometry(50);
-
-	// Create the final object to add to the scene
-	var ellipse = new THREE.Line(geometry, material);
-
-	return ellipse;
-	*/
-	var points = generateArcPoints(length, sx, sy, hdg, curvature, ex, ey, lateralOffset);
-	var path = new THREE.Path(points);
-	var geometry = path.createPointsGeometry(points.length);
+	
+	var points = generateArcPoints(length, elevationLateralProfile, heights, sx, sy, hdg, curvature, ex, ey, lateralOffset).points;
+	var geometry = new THREE.Geometry();
+	geometry.vertices = points;
 	var arc = new THREE.Line(geometry, material);
 	
 	return arc;
 }
 
-function generateCubicPoints(offset, length, sx, sy, hdg, a, b, c, d) {
-
-	var points = [];
-
-	var ds = offset;
-	do {
-
-		if (ds > offset + length || Math.abs(ds - offset - length) < 1E-4) ds = offset + length;
-
-		var tmpx = ds - offset;
-		var tmpy = cubicPolynomial(ds, a, b, c, d);
-
-		// rotate about (0,0) by hdg, then translate by (sx, sy)
-		var x = tmpx * Math.cos(hdg) - tmpy * Math.sin(hdg) + sx;
-		var y = tmpx * Math.sin(hdg) + tmpy * Math.cos(hdg) + sy;
-		points.push(new THREE.Vector2(x, y));
-
-		ds += step;
-	} while(ds < offset + length + step);
-
-	return points;
-}
-
-function createCubic(length, sx, sy, hdg, a, b, c, d) {
-
-	// since geometry is divided on laneOffset, each geometry starts at offset = 0 along a laneOffset (ds starts from 0) if geometry offset exists, when createCubic is called
-	var offset = 0;
-	var points = generateCubicPoints(offset, length, sx, sy, hdg, a, b, c, d);
-	var path = new THREE.Path(points);
-	var geometry = path.createPointsGeometry(points.length);
-	var material = new THREE.MeshBasicMaterial({color: 0xFF0000});
-	var cubic = new THREE.Line(geometry, material);
-
-	return cubic;
-}
-
 function cubicPolynomial(ds, a, b, c, d) {
 
 	return a + b * ds + c * Math.pow(ds, 2) + d * Math.pow(ds, 3);	
+}
+
+function generateSignalMesh(signal, road) {
+
+	var mesh;
+	var transform = track2Inertial(road, signal.s, signal.t, 0);	
+	var position = transform.position;
+	var rotation = transform.rotation;
+	position.z += signal.zOffset;
+
+	// traffic signals' mesh use from outside, need to provide such an interface (signalType - signalMesh)
+	if (signal.dynamic == 'yes')
+		mesh = generateDefaultSignalMesh();
+	else
+		mesh = generateDefaultSignMesh();
+	mesh.position.set(position.x, position.y, position.z);	
+	mesh.rotation.set(rotation.x, rotation.y, rotation.z + Math.PI / 2);
+
+	if (signal.orientation == '+') {
+		mesh.rotateZ(Math.PI);
+	}
+
+	return mesh;
+}
+
+function track2Inertial(road, s, t, h) {
+
+	if (!road) {
+		console.warn('track2Inertial: no road of roadId#', roadId, 'found');
+		return;
+	}
+
+	if (s < 0 || s > road.length) {
+		throw Error('converting from track system to inertial system error: invalid s', s, 'for road#', roadId, 'total length', road.length);
+	}
+
+	var geometry = getGeometryAtS(road, s);
+	var elevation = getElevationAtS(road, s);
+	var superelevation = getSupserelevationAtS(road, s);
+	var crossfall = getCrossfallAtS(road, s);
+
+	var sOffset, hdg, roll, pitch, centralTOffset;
+	var svector, tvector;
+	var x, y, z;
+
+	if (!elevation) elevation = {s: 0, a: 0, b: 0, c: 0, d: 0};
+	if (!superelevation) superelevation = {s: 0, a: 0, b: 0, c: 0, d: 0};
+	if (!crossfall) crossfall = {side: 'both', s: 0, a: 0, b: 0, c: 0, d: 0};
+
+	// find x-y on central reference line in x-y plane
+	sOffset = s - geometry.s;
+	switch(geometry.type) {
+		case 'line':
+			hdg = geometry.hdg;
+			x = geometry.x + sOffset * Math.cos(geometry.hdg);
+			y = geometry.y + sOffset * Math.sin(geometry.hdg);
+			
+			break;
+		case 'spiral':
+			//generateSpiralPoints(length, elevationLateralProfile sx, sy, hdg, curvStart, curvEnd, ex, ey, lateralOffset, subOffset, subLength)
+			var sample = generateSpiralPoints(geometry.length, null, null, geometry.x, geometry.y, geometry.hdg, geometry.spiral.curvStart, geometry.spiral.curvEnd, geometry.ex, geometry.ey, null, sOffset, geometry.length + geometry.s - s);
+			hdg = sample.heading[0];
+			x = sample.points[0].x;
+			y = sample.points[0].y;
+
+			break;
+		case 'arc':
+			var curvature = geometry.arc.curvature;
+			var radius = 1 / Math.abs(curvature);
+			var rotation = geometry.hdg - Math.sign(curvature) * Math.PI / 2;
+			var theta = sOffset * curvature;
+			hdg = geometry.hdg + theta;
+			x = geometry.x - radius * Math.cos(rotation) + radius * Math.cos(rotation + theta);
+			y = geometry.y - radius * Math.sin(rotation) + radius * Math.sin(rotation + theta);
+			
+			break;
+	}
+
+	sOffset = s - elevation.s;
+	z = cubicPolynomial(sOffset, elevation.a, elevation.b, elevation.c, elevation.d);
+	var prez = cubicPolynomial(sOffset - 0.1, elevation.a, elevation.b, elevation.c, elevation.d);
+	pitch = Math.atan((z - prez) / 0.1);
+
+	sOffset = s - superelevation.s;
+	var superelevationAngle = cubicPolynomial(sOffset, superelevation.a, superelevation.b, superelevation.c, superelevation.d);
+
+	sOffset = s - crossfall.s;
+	var crossfallAngle = cubicPolynomial(sOffset, crossfall.a, crossfall.b, crossfall.c, crossfall.d);
+
+	roll = superelevationAngle;
+
+	if (!((t < 0 && crossfall.side == 'left') || (t > 0 && crossfall.side == 'right'))) {
+		roll += crossfallAngle * (- Math.sign(t));
+	}
+
+	// find x, y, z in s - t - h
+	var svector = new THREE.Vector3(1, 0, 0);
+	svector.applyAxisAngle(new THREE.Vector3(0, 0, 1), hdg);
+
+	var tvector = svector.clone();
+	tvector.cross(new THREE.Vector3(0, 0, -1));
+	tvector.applyAxisAngle(svector, roll);
+
+	var hvector = svector.clone();
+	hvector.cross(tvector);
+
+	tvector.multiplyScalar(t);
+	hvector.multiplyScalar(h);
+
+	x += tvector.x + hvector.x;
+	y += tvector.y + hvector.y;
+	z += tvector.z + hvector.z;
+
+	return {
+		position: new THREE.Vector3(x, y, z),
+		rotation: new THREE.Euler(roll, pitch, hdg, 'XYZ')
+	}
+}
+
+/*
+* Helper for track2Inertial, get road info at speific s in a road
+*/
+function getGeometryAtS(road, s) {
+
+	var result = null;
+
+	if (s < 0 || s > road.length + 1E-4) {
+		throw Error('getGeometryAtS error: invalid s', s, 'road length', road.length);
+	}
+
+	for (var i = 0; i < road.geometry.length; i++) {
+		var geometry = road.geometry[i];
+
+		if (geometry.s + geometry.length <= s) continue;
+		else if (geometry.s <= s) result = geometry; //console.log(geometry.s, s, geometry.s <= s)}
+		else break;
+	}
+
+	// must be s == road.length if result == null
+	if (result == null) {
+		result = road.geometry[road.geometry.length - 1]
+	}
+	
+	return result;
+}
+
+function getElevationAtS(road, s) {
+	
+	var result = null;
+
+	if (s < 0 || s > road.length + 1E-4) {
+		throw Error('getElevationAtS error: invalid s', s, 'road length', road.length);
+	}
+
+	if (!road.elevation || !road.elevation.length) return null;
+
+	for (var i = 0; i < road.elevation.length; i++) {
+		var elevation = road.elevation[i];
+		var nextElevationS = road.elevation[i + 1] ? road.elevation[i + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
+
+		if (nextElevationS <= s) continue;
+		else if (elevation.s > s) break;
+		else {
+			if (!(elevation.s <= s)) throw Error('condition needs changing')
+			result = elevation;
+		}
+	}
+
+	// must be s == road.length if result == null
+	if (result == null) {
+		result = road.elevation[road.elevation.length - 1];
+	}
+
+	return result;
+}
+
+function getSupserelevationAtS(road, s) {
+
+	var result = null;
+	
+	if (s < 0 || s > road.length + 1E-4) {
+		throw Error('getSupserelevationAtS error: invalid s', s, 'road length', road.length);
+	}
+
+	if (!road.superelevation) return null;
+
+	for (var i = 0; i < road.superelevation.length; i++) {
+		var superelevation = road.superelevation[i];
+		var nextSuperElevationS = road.superelevation[i + 1] ? road.superelevation[i + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
+
+		if (nextSuperElevationS <= s) continue;
+		else if (superelevation.s > s) break;
+		else {
+			if (!(superelevation.s <= s)) throw Error('condition needs changing');
+			result = superelevation;
+		}
+	}
+
+	// must be s == road.length if result == null
+	if (result == null) {
+		result = road.superelevation[road.superelevation.length - 1];
+	}
+
+	return result;
+}
+
+function getCrossfallAtS(road, s) {
+
+	var result = null;
+
+	if (s < 0 || s > road.length + 1E-4) {
+		throw Error('getCrossfallAtS error: invalid s', s, 'road length', road.length);
+	}
+
+	if (!road.crossfall) return null;
+
+	for (var i = 0; i < road.crossfall.length; i++) {
+		var crossfall = road.corssfall[i];
+		var nextCrossfallS = road.crossfall[i + 1] ? road.crossfall[i + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
+
+		if (nextCrossfallS <= s) continue;
+		else if (crossfall.s > s) break;
+		else {
+			if (!(crossfall.s <= s)) throw Error('condition needs changing');
+			result = crossfall;
+		}
+	}
+
+	// must be s == road.length if result == null
+	if (result == null) {
+		result = road.crossfall[road.crossfall.length - 1];
+	}
+
+	return result;
+}
+
+function getLaneOffsetAtS(road, s) {
+
+	var result = null;
+
+	if (s < 0 || s > road.length + 1E-4) {
+		throw Error('getLaneOffsetAtS error: invalid s', s, 'road length', road.length);
+	}
+
+	if (!road.laneOffset) return null;
+
+	for (var i = 0; i < road.laneOffset.length; i++) {
+		var laneOffset = road.laneOffset[i];
+		var nextLaneOffsetS = road.laneOffset[i + 1] ? road.laneOffset[i + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
+
+		if (nextLaneOffsetS <= s) continue;
+		else if (laneOffset.s > s) break;
+		else {
+			if (!(laneOffset.s <= s)) throw Error('condition needs changing')
+			result = laneOffset;
+		}
+	}
+
+	// must be s == road.length if result == null
+	if (result == null) {
+		result = road.laneOffset[road.laneOffset.length - 1];
+	}
+
+	return result;
+}
+
+function getLaneSectionAtS(road, s) {
+
+	var result = null;
+
+	if (s < 0 || s > road.length + 1E-4) {
+		throw Error('getLaneSectionAtS error: invalid s', s, 'road length', road.length);
+	}
+
+	for (var i = 0; i < road.laneSection.length; i++) {
+		var laneSection = road.laneSection[i];
+		var nextLaneSectionS = road.laneSection[i + 1] ? road.laneSection[i + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
+
+		if (nextLaneSectionS <= s) continue;
+		else if (laneSection.s > s) break;
+		else {
+			if (!(laneSection.s <= s)) throw Error('condition needs changing');
+			result = laneSection;
+		}
+	}
+
+	// must be s == road.length if result == null
+	if (result == null) {
+		result = road.laneSection[road.laneSection.length - 1];
+	}
+	return result;
+}
+
+function generateDefaultSignMesh() {
+
+	var poleRadius = 0.02;
+	var poleHeight = 2;
+	var signTopWidth = 0.7;
+	var signTopHeight = 0.7;
+	var signTopThickness = 0.01; 
+
+	var geometry = new THREE.BoxBufferGeometry(signTopWidth, signTopThickness, signTopHeight);
+	var material = new THREE.MeshBasicMaterial({color: 0x6F6F6F});
+	var signTop = new THREE.Mesh(geometry, material);
+	signTop.rotateY(-Math.PI / 4);
+	signTop.position.set(0, -poleRadius - signTopThickness / 2, poleHeight - signTopHeight / 2);
+
+	geometry = new THREE.BoxBufferGeometry(2*poleRadius, 2*poleRadius, poleHeight);
+	var signlPole = new THREE.Mesh(geometry, material);
+	signlPole.position.set(0, 0, poleHeight / 2);
+
+	var sign = new THREE.Group();
+	sign.add(signTop);
+	sign.add(signlPole);
+
+	return sign;
+}
+
+function generateDefaultSignalMesh() {
+
+	var poleRadius = 0.02;
+	var poleHeight = 2;
+	var signalBoxWidth = 0.2;
+	var signalBoxDepth = 0.2;
+	var signalBoxHeight = 0.8;
+	var signalLightRadius = signalBoxHeight / 10;
+
+	var geometry = new THREE.BoxBufferGeometry(signalBoxWidth, signalBoxDepth, signalBoxHeight);
+	var material = new THREE.MeshBasicMaterial({color: 0x6F6F6F});
+	var signalBox = new THREE.Mesh(geometry, material);
+	signalBox.position.set(0, poleRadius - signalBoxDepth / 2, poleHeight - signalBoxHeight / 2);
+
+	geometry = new THREE.BoxBufferGeometry(2*poleRadius, 2*poleRadius, poleHeight);
+	var signalPole = new THREE.Mesh(geometry, material);
+	signalPole.position.set(0, 0, poleHeight / 2);
+
+	geometry = new THREE.CircleBufferGeometry(signalLightRadius, 32);
+	material = new THREE.MeshBasicMaterial({color: 0xFF0000});
+	var redLight = new THREE.Mesh(geometry, material);
+	redLight.rotateX(Math.PI / 2);
+	redLight.position.set(0, poleRadius - signalBoxDepth - 0.01, poleHeight - signalLightRadius * 2);
+	
+	material = new THREE.MeshBasicMaterial({color: 0xFFFF00});
+	var yellowLight = new THREE.Mesh(geometry, material);
+	yellowLight.rotateX(Math.PI / 2);
+	yellowLight.position.set(0, poleRadius - signalBoxDepth - 0.01, poleHeight - signalLightRadius * 5);
+
+	material = new THREE.MeshBasicMaterial({color: 0x00CD00});
+	var greenLight = new THREE.Mesh(geometry, material);
+	greenLight.rotateX(Math.PI / 2);
+	greenLight.position.set(0, poleRadius - signalBoxDepth - 0.01, poleHeight - signalLightRadius * 8);
+
+	var signal = new THREE.Group();
+	signal.add(signalBox);
+	signal.add(redLight);
+	signal.add(yellowLight);
+	signal.add(greenLight);
+	signal.add(signalPole);
+
+	return signal;
 }
 
 /*
@@ -2725,7 +3625,6 @@ function getLinkedRoadId(linkedInfo) {
 
 	return roadIds;
 }
-
 
 var scene, camera, renderer;
 var container;
@@ -2787,12 +3686,12 @@ function test() {
 	var map;
 	//map = new Map(scene, "../data/Crossing8Course.xodr");
 	//map = new Map(scene, "../data/CrossingComplex8Course.xodr");
-	map = new Map(scene, "../data/Roundabout8Course.xodr");
+	//map = new Map(scene, "../data/Roundabout8Course.xodr");
 	//map = new Map(scene, "../data/CulDeSac.xodr");
-	//map = new Map(scene, "../data/Country.xodr");	// multiple width on Arc
+	map = new Map(scene, "../data/Country.xodr");	// multiple width on Arc
 	//map = new Map(scene, "../data/test.xodr");
 
-	//map.paveAllRoads()
+	map.paveAllRoads()
 	//map.showReferenceLine();
-	map.paveRoadsByIds(['103'])
+	map.showSignals();
 }
