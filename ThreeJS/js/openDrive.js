@@ -1713,7 +1713,7 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 		subElevationLateralProfile.crossfalls = getCrossfall(elevationLateralProfile.crossfalls, geometry.s, geometry.s + geometry.length);
 
 		// width and border is not allowed for center lane. center lane only needs to draw the mark
-		drawRoadMark(laneSectionStart, geometry, subElevationLateralProfile, null, lane.roadMark);
+		drawRoadMark(laneSectionStart, lane.id, geometry, subElevationLateralProfile, null, lane.roadMark, mesh);
 		return;
 	}
 
@@ -1893,7 +1893,7 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 				if (!(width.a == 0 && width.b == 0 && width.c == 0 && width.d == 0)) {
 
 					// get inner border spline points
-					iBorderPoints = generateSpiralPoints(geometry.length, subElevationLateralProfile, null, geometry.x, geometry.y, geometry.hdg, geometry.spiral.curvStart, geometry.spiral.curvEnd, geometry.ex, geometry.ey, geometry.offset, gOffset, length).points;
+					iBorderPoints = generateSpiralPoints(length, subElevationLateralProfile, null, sx, sy, hdg, curvStart, curvEnd, ex, ey, {a: innerA, b: innerB, c: innerC, d: innerD}).points;
 					//drawCustomLine(iBorderPoints, 0xFF6666);
 					//if (lane.type != 'border' && lane.type != 'none') drawLineAtPoint(iBorderPoints[iBorderPoints.length - 1].x, iBorderPoints[iBorderPoints.length - 1].y, iBorderPoints[iBorderPoints.length - 1].z, geometry.hdg + Math.sign(lane.id) * Math.PI / 4)
 					
@@ -2024,7 +2024,7 @@ function generateLaneMesh(laneSectionStart, geometry, elevationLateralProfile, l
 		// draw road marks
 		try {
 			if (oGeometry.length > 1E-10)
-				drawRoadMark(laneSectionStart, oGeometries[i], subElevationLateralProfile, laneHeights.outer, lane.roadMark, mesh);	
+				drawRoadMark(laneSectionStart, lane.id, oGeometries[i], subElevationLateralProfile, laneHeights.outer, lane.roadMark, mesh);
 		} catch(e) {
 			console.error(e);
 		}
@@ -2303,7 +2303,7 @@ function drawSphereAtPoint(point, color) {
 	scene.add(mesh);
 }
 
-function drawRoadMark(laneSectionStart, oBorder, elevationLateralProfile, outerHeights, roadMarks, mesh) {
+function drawRoadMark(laneSectionStart, laneId, oBorder, elevationLateralProfile, outerHeights, roadMarks, mesh) {
 
 	if (roadMarks.length == 0) return;
 
@@ -2314,7 +2314,7 @@ function drawRoadMark(laneSectionStart, oBorder, elevationLateralProfile, outerH
 	colorMaterial.green = new THREE.MeshBasicMaterial({color: 0x00FF00});
 	colorMaterial.red = new THREE.MeshBasicMaterial({color: 0xFF0000});
 	colorMaterial.white = new THREE.MeshBasicMaterial({color: 0xFFFFFF});
-	colorMaterial.yellow = new THREE.MeshBasicMaterial({color: 0xFFFF00});
+	colorMaterial.yellow = new THREE.MeshBasicMaterial({color: 0xFFD700});
 
 	// find which roadMarks are covered by this oBorder seg
 	var currentMarks = [];
@@ -2353,7 +2353,8 @@ function drawRoadMark(laneSectionStart, oBorder, elevationLateralProfile, outerH
 		subElevationLateralProfile.crossfalls = getCrossfall(elevationLateralProfile.crossfalls, Math.max(roadMark.sOffset + laneSectionStart, oBorder.s),  Math.min(nextRoadMarkSOffset + laneSectionStart, oBorder.s + oBorder.centralLength));
 
 		var lBorderPoints, rBorderPoints;
-		var geometry, mesh;
+		var llBorderPoints, lrBorderPoints, rlBorderPoints, rrBorderPoints;
+		var geometry, lgeometry, rgeometry, roadMarkMesh;
 
 		switch(oBorder.type) {
 
@@ -2364,11 +2365,27 @@ function drawRoadMark(laneSectionStart, oBorder, elevationLateralProfile, outerH
 
 				var lateralOffset;
 
-				lateralOffset = {a: offsetA - width / 2, b: offsetB, c: offsetC, d: offsetD};
-				rBorderPoints = generateCubicPoints(sOffset, length, subElevationLateralProfile, outerHeights, sx, sy, oBorder.hdg, lateralOffset);
+				if (roadMark.type.split(' ').length == 1) {
+					lateralOffset = {a: offsetA - width / 2, b: offsetB, c: offsetC, d: offsetD};
+					rBorderPoints = generateCubicPoints(sOffset, length, subElevationLateralProfile, outerHeights, sx, sy, oBorder.hdg, lateralOffset);
+					
+					lateralOffset = {a: offsetA + width / 2, b: offsetB, c: offsetC, d: offsetD};
+					lBorderPoints = generateCubicPoints(sOffset, length, subElevationLateralProfile, outerHeights, sx, sy, oBorder.hdg, lateralOffset);
+				}
 				
-				lateralOffset = {a: offsetA + width / 2, b: offsetB, c: offsetC, d: offsetD};
-				lBorderPoints = generateCubicPoints(sOffset, length, subElevationLateralProfile, outerHeights, sx, sy, oBorder.hdg, lateralOffset);
+				if (roadMark.type.split(' ').length == 2) {
+					lateralOffset = {a: offsetA - 0.75 * width - width / 2, b: offsetB, c: offsetC, d: offsetD};
+					rrBorderPoints = generateCubicPoints(sOffset, length, subElevationLateralProfile, outerHeights, sx, sy, oBorder.hdg, lateralOffset);
+					
+					lateralOffset = {a: offsetA - 0.75 * width + width / 2, b: offsetB, c: offsetC, d: offsetD};
+					rlBorderPoints = generateCubicPoints(sOffset, length, subElevationLateralProfile, outerHeights, sx, sy, oBorder.hdg, lateralOffset);
+
+					lateralOffset = {a: offsetA + 0.75 * width - width / 2, b: offsetB, c: offsetC, d: offsetD};
+					lrBorderPoints = generateCubicPoints(sOffset, length, subElevationLateralProfile, outerHeights, sx, sy, oBorder.hdg, lateralOffset);
+					
+					lateralOffset = {a: offsetA + 0.75 * width + width / 2, b: offsetB, c: offsetC, d: offsetD};
+					llBorderPoints = generateCubicPoints(sOffset, length, subElevationLateralProfile, outerHeights, sx, sy, oBorder.hdg, lateralOffset);
+				}
 
 				break;
 			case 'spiral':
@@ -2376,13 +2393,29 @@ function drawRoadMark(laneSectionStart, oBorder, elevationLateralProfile, outerH
 				/* NOTE: multiple roadMarks may happen on geometries besides 'line', e.g. road#91 geometry#1*/
 				var lateralOffset;
 
-				lateralOffset = {a: offsetA - width / 2, b: offsetB, c: offsetC, d: offsetD};
-				rBorderPoints = generateSpiralPoints(oBorder.length, subElevationLateralProfile, outerHeights, oBorder.centralX, oBorder.centralY, oBorder.hdg, oBorder.spiral.curvStart, oBorder.spiral.curvEnd, oBorder.ex, oBorder.ey, lateralOffset, sOffset, length).points;
-				//drawCustomLine(rBorderPoints, 0xFF6666);
+				if (roadMark.type.split(' ').length == 1) {
+					lateralOffset = {a: offsetA - width / 2, b: offsetB, c: offsetC, d: offsetD};
+					rBorderPoints = generateSpiralPoints(oBorder.length, subElevationLateralProfile, outerHeights, oBorder.centralX, oBorder.centralY, oBorder.hdg, oBorder.spiral.curvStart, oBorder.spiral.curvEnd, oBorder.ex, oBorder.ey, lateralOffset, sOffset, length).points;
+					//drawCustomLine(rBorderPoints, 0xFF6666);
 
-				lateralOffset = {a: offsetA + width / 2, b: offsetB, c: offsetC, d: offsetD};
-				lBorderPoints = generateSpiralPoints(oBorder.length, subElevationLateralProfile, outerHeights, oBorder.centralX, oBorder.centralY, oBorder.hdg, oBorder.spiral.curvStart, oBorder.spiral.curvEnd, oBorder.ex, oBorder.ey, lateralOffset, sOffset, length).points;
-				//drawCustomLine(lBorderPoints, 0x6666FF);
+					lateralOffset = {a: offsetA + width / 2, b: offsetB, c: offsetC, d: offsetD};
+					lBorderPoints = generateSpiralPoints(oBorder.length, subElevationLateralProfile, outerHeights, oBorder.centralX, oBorder.centralY, oBorder.hdg, oBorder.spiral.curvStart, oBorder.spiral.curvEnd, oBorder.ex, oBorder.ey, lateralOffset, sOffset, length).points;
+					//drawCustomLine(lBorderPoints, 0x6666FF);
+				}
+
+				if (roadMark.type.split(' ').length == 2) {
+					lateralOffset = {a: offsetA - 0.75 * width - width / 2, b: offsetB, c: offsetC, d: offsetD};
+					rrBorderPoints = generateSpiralPoints(oBorder.length, subElevationLateralProfile, outerHeights, oBorder.centralX, oBorder.centralY, oBorder.hdg, oBorder.spiral.curvStart, oBorder.spiral.curvEnd, oBorder.ex, oBorder.ey, lateralOffset, sOffset, length).points;
+
+					lateralOffset = {a: offsetA - 0.75 * width + width / 2, b: offsetB, c: offsetC, d: offsetD};
+					rlBorderPoints = generateSpiralPoints(oBorder.length, subElevationLateralProfile, outerHeights, oBorder.centralX, oBorder.centralY, oBorder.hdg, oBorder.spiral.curvStart, oBorder.spiral.curvEnd, oBorder.ex, oBorder.ey, lateralOffset, sOffset, length).points;
+
+					lateralOffset = {a: offsetA + 0.75 * width - width / 2, b: offsetB, c: offsetC, d: offsetD};
+					lrBorderPoints = generateSpiralPoints(oBorder.length, subElevationLateralProfile, outerHeights, oBorder.centralX, oBorder.centralY, oBorder.hdg, oBorder.spiral.curvStart, oBorder.spiral.curvEnd, oBorder.ex, oBorder.ey, lateralOffset, sOffset, length).points;
+
+					lateralOffset = {a: offsetA + 0.75 * width + width / 2, b: offsetB, c: offsetC, d: offsetD};
+					llBorderPoints = generateSpiralPoints(oBorder.length, subElevationLateralProfile, outerHeights, oBorder.centralX, oBorder.centralY, oBorder.hdg, oBorder.spiral.curvStart, oBorder.spiral.curvEnd, oBorder.ex, oBorder.ey, lateralOffset, sOffset, length).points;
+				}
 
 				break;
 			case 'arc':
@@ -2396,28 +2429,82 @@ function drawRoadMark(laneSectionStart, oBorder, elevationLateralProfile, outerH
 				// get the central reference line start point first
 				var sx = oBorder.x - radius * Math.cos(rotation) + radius * Math.cos(rotation + theta);
 				var sy = oBorder.y - radius * Math.sin(rotation) + radius * Math.sin(rotation + theta);
-				theta = (sOffset + length) * curvature;
-				var ex = oBorder.x - radius * Math.cos(rotation) + radius * Math.cos(rotation + theta);
-				var ey = oBorder.y - radius * Math.sin(rotation) + radius * Math.sin(rotation + theta);
+				var ex = oBorder.ex;
+				var ey = oBorder.ey;
+				if (nextRoadMarkSOffset != oBorder.s + oBorder.centralLength - laneSectionStart) {
+					theta = (sOffset + length) * curvature;
+					ex = oBorder.x - radius * Math.cos(rotation) + radius * Math.cos(rotation + theta);
+					ey = oBorder.y - radius * Math.sin(rotation) + radius * Math.sin(rotation + theta);
+				}
 
 				var lateralOffset;
 
-				lateralOffset = {a: offsetA - width / 2, b: offsetB, c: offsetC, d: offsetD};
-				rBorderPoints = generateArcPoints(length, subElevationLateralProfile, outerHeights, sx, sy, hdg, curvature, ex, ey, lateralOffset).points;
-				lateralOffset = {a: offsetA + width / 2, b: offsetB, c: offsetC, d: offsetD};
-				lBorderPoints = generateArcPoints(length, subElevationLateralProfile, outerHeights, sx, sy, hdg, curvature, ex, ey, lateralOffset).points;
+				if (roadMark.type.split(' ').length == 1) {
+					lateralOffset = {a: offsetA - width / 2, b: offsetB, c: offsetC, d: offsetD};
+					rBorderPoints = generateArcPoints(length, subElevationLateralProfile, outerHeights, sx, sy, hdg, curvature, ex, ey, lateralOffset).points;
+					
+					lateralOffset = {a: offsetA + width / 2, b: offsetB, c: offsetC, d: offsetD};
+					lBorderPoints = generateArcPoints(length, subElevationLateralProfile, outerHeights, sx, sy, hdg, curvature, ex, ey, lateralOffset).points;
+				}
+
+				if (roadMark.type.split(' ').length == 2) {
+					lateralOffset = {a: offsetA - 0.75 * width - width / 2, b: offsetB, c: offsetC, d: offsetD};
+					rrBorderPoints = generateArcPoints(length, subElevationLateralProfile, outerHeights, sx, sy, hdg, curvature, ex, ey, lateralOffset).points;
+					
+					lateralOffset = {a: offsetA - 0.75 * width + width / 2, b: offsetB, c: offsetC, d: offsetD};
+					rlBorderPoints = generateArcPoints(length, subElevationLateralProfile, outerHeights, sx, sy, hdg, curvature, ex, ey, lateralOffset).points;
+
+					lateralOffset = {a: offsetA + 0.75 * width - width / 2, b: offsetB, c: offsetC, d: offsetD};
+					lrBorderPoints = generateArcPoints(length, subElevationLateralProfile, outerHeights, sx, sy, hdg, curvature, ex, ey, lateralOffset).points;
+					
+					lateralOffset = {a: offsetA + 0.75 * width + width / 2, b: offsetB, c: offsetC, d: offsetD};
+					llBorderPoints = generateArcPoints(length, subElevationLateralProfile, outerHeights, sx, sy, hdg, curvature, ex, ey, lateralOffset).points;
+				}
 
 				break;
 		}
 			
 		if (roadMark.type == 'broken')
 			geometry = createDiscontiniousMeshGeometry(lBorderPoints, rBorderPoints)
-		else
+		if (roadMark.type == 'solid')
 			geometry = createCustomFaceGeometry(lBorderPoints, rBorderPoints)
-		
-		mesh = new THREE.Mesh(geometry, colorMaterial[roadMark.color]);
-		mesh.position.set(0,0,0.001);
-		scene.add(mesh);
+		if (roadMark.type == 'solid solid') {
+			lgeometry = createCustomFaceGeometry(llBorderPoints, lrBorderPoints)
+			rgeometry = createCustomFaceGeometry(rlBorderPoints, rrBorderPoints)
+		}
+		if (roadMark.type == 'broken broken') {
+			lgeometry = createDiscontiniousMeshGeometry(llBorderPoints, lrBorderPoints)
+			rgeometry = createDiscontiniousMeshGeometry(rlBorderPoints, rrBorderPoints)
+		}
+		if (roadMark.type == 'solid broken') {
+			if (laneId > 0) {
+				lgeometry = createDiscontiniousMeshGeometry(llBorderPoints, lrBorderPoints)
+				rgeometry = createCustomFaceGeometry(rlBorderPoints, rrBorderPoints)
+			} else {
+				lgeometry = createCustomFaceGeometry(llBorderPoints, lrBorderPoints)
+				rgeometry = createDiscontiniousMeshGeometry(rlBorderPoints, rrBorderPoints)
+			}
+		}
+		if (roadMark.type == 'broken solid') {
+			if (laneId > 0) {
+				lgeometry = createCustomFaceGeometry(llBorderPoints, lrBorderPoints)
+				rgeometry = createDiscontiniousMeshGeometry(rlBorderPoints, rrBorderPoints)
+			} else {
+				lgeometry = createDiscontiniousMeshGeometry(llBorderPoints, lrBorderPoints)
+				rgeometry = createCustomFaceGeometry(rlBorderPoints, rrBorderPoints)
+			}
+		}
+
+		if (geometry) {
+			roadMarkMesh = new THREE.Mesh(geometry, colorMaterial[roadMark.color]);
+		}
+		else {
+			roadMarkMesh = new THREE.Group();
+			roadMarkMesh.add(new THREE.Mesh(lgeometry, colorMaterial[roadMark.color]));
+			roadMarkMesh.add(new THREE.Mesh(rgeometry, colorMaterial[roadMark.color]));
+		}
+		roadMarkMesh.position.set(0,0,0.001);
+		mesh.push(roadMarkMesh);
 	}
 }
 
@@ -2750,7 +2837,7 @@ function generateSpiralPoints(length, elevationLateralProfile, heights, sx, sy, 
 	// fix the error by altering the end point to he connecting road's start
 	if (typeof ex == 'number' && typeof ey == 'number') {
 
-		var delta = new THREE.Vector3(ex - points[points.length - 1].x, ey - points[points.length - 1], 0);
+		var delta = new THREE.Vector3(ex - points[points.length - 1].x, ey - points[points.length - 1].y, 0);
 		points[points.length - 1].x = ex;
 		points[points.length - 1].y = ey;
 
@@ -3234,7 +3321,7 @@ function generateSignalMesh(signal, road) {
 	else
 		mesh = generateDefaultSignMesh();
 	mesh.position.set(position.x, position.y, position.z);	
-	mesh.rotation.set(rotation.x, rotation.y, rotation.z + Math.PI / 2);
+	mesh.rotation.set(0, 0, rotation.z + Math.PI / 2);
 
 	if (signal.orientation == '+') {
 		mesh.rotateZ(Math.PI);
@@ -3333,7 +3420,7 @@ function track2Inertial(road, s, t, h) {
 
 	return {
 		position: new THREE.Vector3(x, y, z),
-		rotation: new THREE.Euler(roll, pitch, hdg, 'XYZ')
+		rotation: new THREE.Euler(roll, -pitch, hdg, 'XYZ')
 	}
 }
 
@@ -3690,6 +3777,7 @@ function test() {
 	//map = new Map(scene, "../data/CulDeSac.xodr");
 	map = new Map(scene, "../data/Country.xodr");	// multiple width on Arc
 	//map = new Map(scene, "../data/test.xodr");
+	//map = new Map(scene, "../data/Country.json");
 
 	map.paveAllRoads()
 	//map.showReferenceLine();

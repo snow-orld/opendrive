@@ -2,9 +2,9 @@ var scene, camera, renderer;
 var container;
 var step = 1; // generate point in step 1m for spiral curve, later apply to arc generation
 
-var map = parseXML("../data/Crossing8Course.xodr");
+//var map = parseXML("../data/Crossing8Course.xodr");
 //var map = parseXML("../data/CrossingComplex8Course.xodr");	// lane lateral shift cause incontinious
-//var map = parseXML("../data/Roundabout8Course.xodr");		// error - taken as a rare case when spiral ends a geometry
+var map = parseXML("../data/Roundabout8Course.xodr");		// error - taken as a rare case when spiral ends a geometry
 //var map = parseXML("../data/CulDeSac.xodr");
 //var map = parseXML("../data/Country.xodr");				// dead loop due to extremly short E-14 laneSection length, when generating cubic points using for loop
 //var map = parseXML("../data/test.xodr");
@@ -22,7 +22,7 @@ function init() {
 
 	/** Setting up camera */
 	camera = new THREE.PerspectiveCamera(100, window.innerWidth / window.innerHeight, 0.05, 10000);
-	camera.position.set(0, 0, 200);
+	camera.position.set(0, 200, 0);
 	//camera.lookAt(new THREE.Vector3(0, 0, 20));
 	scene.add(camera);
 
@@ -31,7 +31,6 @@ function init() {
 
 	/** Settting up Plane with Grid Helper */
 	var planeGeometry = new THREE.PlaneGeometry(1000, 1000);
-	planeGeometry.rotateX(- Math.PI / 2);
 	var planeMaterial = new THREE.ShadowMaterial();
 	planeMaterial.opacity = 0.2;
 	var plane = new THREE.Mesh(planeGeometry, planeMaterial);
@@ -39,11 +38,13 @@ function init() {
 	scene.add(plane);
 
 	var helper = new THREE.GridHelper(1000, 100);
-	helper.rotateX(- Math.PI / 2);
 	helper.position.y = 0;
 	helper.material.opacity = 0.25;
 	helper.material.transparent = true;
 	scene.add(helper);
+
+	var axisHelper = new THREE.AxisHelper();
+	scene.add(axisHelper);
 
 	/** Settign up rendere */
 	renderer = new THREE.WebGLRenderer( {antialias: true} );
@@ -166,7 +167,7 @@ function parseXML(xmlFile) {
 			}
 		}
 
-		// elevationProfile 0...1
+		// elevationPorfile 0...1
 		var elevationProfileNodes = roadNode.getElementsByTagName('elevationProfile');
 		if (elevationProfileNodes.length) {
 		
@@ -787,7 +788,7 @@ function subDivideRoadGeometry(road) {
 						subGeometry1.spiral.curvEnd = goemetry.spiral.curvStart + subGeometry1.length * (geometry.spiral.curvEnd - geometry.spiral.curvStart) / geometry.length;
 					}
 
-					if (geometry.type == 'arc') {
+					if (geomtry.type == 'arc') {
 						subGeometry1.arc = {curvature: geometry.arc.curvature};
 					}
 
@@ -890,7 +891,7 @@ function subDivideRoadGeometry(road) {
 						subGeometry1.spiral.curvEnd = goemetry.spiral.curvStart + subGeometry1.length * (geometry.spiral.curvEnd - geometry.spiral.curvStart) / geometry.length;
 					}
 
-					if (geometry.type == 'arc') {
+					if (geomtry.type == 'arc') {
 						subGeometry1.arc = {curvature: geometry.arc.curvature};
 					}
 
@@ -946,7 +947,7 @@ function createLine(length, elevationLateralProfile, hOffset, sx, sy, hdg) {
 	var material = new THREE.MeshBasicMaterial({color: 0xFF0000});
 	var x, y, z;
 	var elevations, superelevations, crossfalls;
-
+	
 	if (elevationLateralProfile) {
 		elevations = elevationLateralProfile.elevations;
 		superelevations = elevationLateralProfile.superelevations;
@@ -973,10 +974,10 @@ function createLine(length, elevationLateralProfile, hOffset, sx, sy, hdg) {
 			if (ds > elevationLength || Math.abs(ds - elevationLength) < 1E-4) ds = elevationLength;
 			
 			x = sx + (s + ds - s0) * Math.cos(hdg);
-			y = sy + (s + ds - s0) * Math.sin(hdg);
-			z = cubicPolynomial(ds, elevations[i].a, elevations[i].b, elevations[i].c, elevations[i].d);
+			z = sy + (s + ds - s0) * Math.sin(hdg);
+			y = cubicPolynomial(ds, elevations[i].a, elevations[i].b, elevations[i].c, elevations[i].d);
 
-			points.push(new THREE.Vector3(x, y, z));
+			points.push(new THREE.Vector3(x, y, -z));
 
 			ds += step;
 		} while (ds < elevationLength + step);
@@ -1059,7 +1060,7 @@ function generateSpiralPoints(length, elevationLateralProfile, heights, sx, sy, 
 		do {
 
 			if (s == 0) {
-				points.push(new THREE.Vector3(sx, sy, elevations[0].a));
+				points.push(new THREE.Vector3(sx, elevations[0].a, -sy));
 				heading.push(theta);
 				if (lateralOffset) tOffset.push(lateralOffset.a);
 				sOffset.push(s);
@@ -1083,8 +1084,8 @@ function generateSpiralPoints(length, elevationLateralProfile, heights, sx, sy, 
 			var prePoint = points[points.length - 1];
 			
 			x = prePoint.x + (s - preS) * Math.cos(theta + curvature * (s - preS) / 2);
-			y = prePoint.y + (s - preS) * Math.sin(theta + curvature * (s - preS) / 2);
-			z = cubicPolynomial(s - elevationSOffset, elevations[i].a, elevations[i].b, elevations[i].c, elevations[i].d);
+			z = prePoint.z - (s - preS) * Math.sin(theta + curvature * (s - preS) / 2);
+			y = cubicPolynomial(s - elevationSOffset, elevations[i].a, elevations[i].b, elevations[i].c, elevations[i].d);
 
 			theta += curvature * (s - preS);
 			preS = s;
@@ -1101,15 +1102,15 @@ function generateSpiralPoints(length, elevationLateralProfile, heights, sx, sy, 
 	// fix the error by altering the end point to he connecting road's start
 	if (typeof ex == 'number' && typeof ey == 'number') {
 
-		var delta = new THREE.Vector3(ex - points[points.length - 1].x, ey - points[points.length - 1].y, 0);
+		var delta = new THREE.Vector3(ex - points[points.length - 1].x, 0, -ey - points[points.length - 1].z);
 		points[points.length - 1].x = ex;
-		points[points.length - 1].y = ey;
+		points[points.length - 1].z = -ey;
 
 		var lastStep = points[points.length - 1].distanceTo(points[points.length - 2]);
 		// distrubte error across sample points for central clothoid 		
 		for (var i = points.length - 2; i > 0; i--) {
 			points[i].x += delta.x * sOffset[i] / length;
-			points[i].y += delta.y * sOffset[i] / length;
+			points[i].z += delta.z * sOffset[i] / length;
 		}
 	}
 
@@ -1168,9 +1169,9 @@ function generateSpiralPoints(length, elevationLateralProfile, heights, sx, sy, 
 			}
 
 			svector = new THREE.Vector3(1, 0, 0);
-			svector.applyAxisAngle(new THREE.Vector3(0, 0, 1), currentHeading);
+			svector.applyAxisAngle(new THREE.Vector3(0, 1, 0), currentHeading);
 			tvector = svector.clone();
-			tvector.cross(new THREE.Vector3(0, 0, -1));
+			tvector.cross(new THREE.Vector3(0, -1, 0));
 
 			if (t != 0) {
 				var superelevationAngle = cubicPolynomial(ds + elevationS0 - superelevation.s, superelevation.a, superelevation.b, superelevation.c, superelevation.d);
@@ -1292,240 +1293,6 @@ function createSpiral(length, elevationLateralProfile, heights, sx, sy, hdg, cur
 }
 
 /*
-* Helper function for generateClothoid
-*
-* Rotate shape about (cx, cy) by hdg degree in x-y plane
-* @Param points sample points of the shape
-* @Param (cx, cy) the rotation center
-* @Param hdg the degree to rotate
-*/
-function rotate2D(points, cx, cy, hdg) {
-
-	// move (cx, cy) to (0,0)
-	for (var i = 0; i < points.length; i++) {
-		var point = points[i];
-		point.x -= cx;
-		point.y -= cy;
-
-		var tmpx = point.x;
-		var tmpy = point.y;
-		point.x = tmpx * Math.cos(hdg) - tmpy * Math.sin(hdg);
-		point.y = tmpx * Math.sin(hdg) + tmpy * Math.cos(hdg);
-
-		point.x += cx;
-		point.y += cy;
-
-	}
-}
-
-/*
-* Helper function for tilting superelevation
-*
-* Rotate points sample around axis, (axis is a directional vector3 from original to (x, y, z), then transform the axis' from (0,0,0), to (ax, ay, 0))
-* @Param points sample points of a geometry
-* @Param axis vector3, the axis defined at origin, i.e. before transform to ax, ay
-* @Param (ax, ay) the axis' position in x-y plane
-* @Param angle the degree to rotate
-*/
-function rotate3D(points, ax, ay, axis, angle) {
-
-	// move points to (ax, ay, 0) to match the axis' start position
-	for (var i = 0; i < points.length; i++) {
-		var point = points[i];
-		point.x -= ax;
-		point.y -= ay;
-		point.z -= 0;
-
-		point.applyAxisAngle(axis, angle);
-
-		point.x += ax;
-		point.y += ay;
-		point.z += 0;
-	}
-}
-
-/*
-* Genereate sample points for a clothoid spiral
-*
-* @Param length the arc length trhoughtou the curve
-* @Param sx, sy the start position of the curve
-* @Param hdg the heading direction of the starting point
-* @Param curvStart curvature of the starting point
-* @Param curvEnd curvature of the ending point
-* @Param tOffset the constant offset from clothoid (used to draw paralell curve to clothoid)
-* @Return sample points
-*/
-function generateClothoidPoints(length, sx, sy, hdg, curvStart, curvEnd, tOffset) {
-
-	/* S(x) for small x */
-	var sn = [-2.99181919401019853726E3, 7.08840045257738576863E5, -6.29741486205862506537E7, 2.54890880573376359104E9, -4.42979518059697779103E10, 3.18016297876567817986E11];
-	var sd = [2.81376268889994315696E2, 4.55847810806532581675E4, 5.17343888770096400730E6, 4.19320245898111231129E8, 2.24411795645340920940E10, 6.07366389490084639049E11];
-
-	/* C(x) for small x */
-	var cn = [-4.98843114573573548651E-8, 9.50428062829859605134E-6, -6.45191435683965050962E-4, 1.88843319396703850064E-2, -2.05525900955013891793E-1, 9.99999999999999998822E-1];
-	var cd = [3.99982968972495980367E-12, 9.15439215774657478799E-10, 1.25001862479598821474E-7, 1.22262789024179030997E-5, 8.68029542941784300606E-4, 4.12142090722199792936E-2, 1.00000000000000000118E0];
-
-	/* Auxiliary function f(x) */
-	var fn = [4.21543555043677546506E-1, 1.43407919780758885261E-1, 1.15220955073585758835E-2, 3.45017939782574027900E-4, 4.63613749287867322088E-6, 3.05568983790257605827E-8, 1.02304514164907233465E-10, 1.72010743268161828879E-13, 1.34283276233062758925E-16, 3.76329711269987889006E-20];
-	var fd = [7.51586398353378947175E-1, 1.16888925859191382142E-1, 6.44051526508858611005E-3, 1.55934409164153020873E-4, 1.84627567348930545870E-6, 1.12699224763999035261E-8, 3.60140029589371370404E-11, 5.88754533621578410010E-14, 4.52001434074129701496E-17, 1.25443237090011264384E-20];
-
-	/* Auxiliary function g(x) */
-	var gn = [5.04442073643383265887E-1, 1.97102833525523411709E-1, 1.87648584092575249293E-2, 6.84079380915393090172E-4, 1.15138826111884280931E-5, 9.82852443688422223854E-8, 4.45344415861750144738E-10, 1.08268041139020870318E-12, 1.37555460633261799868E-15, 8.36354435630677421531E-19, 1.86958710162783235106E-22];
-	var gd = [1.47495759925128324529E0, 3.37748989120019970451E-1, 2.53603741420338795122E-2, 8.14679107184306179049E-4, 1.27545075667729118702E-5, 1.04314589657571990585E-7, 4.60680728146520428211E-10, 1.10273215066240270757E-12, 1.38796531259578871258E-15, 8.39158816283118707363E-19, 1.86958710162783236342E-22];
-
-	function polevl(x, coef, n) {
-		var ans = 0;
-		for (var i = 0; i <= n; i++) {
-			ans = ans * x + coef[i];
-		}
-		return ans;
-	}
-
-	function p1evl(x, coef, n) {
-		var ans = x + coef[0];
-		for (var i = 0; i < n; i++) {
-			ans = ans * x + coef[i];
-		}
-		return ans;
-	}
-
-	function fresnel(xxa) {
-		var f, g, cc, ss, c, s, t, u;
-		var x, x2;
-		var point = new THREE.Vector2();
-
-		x  = Math.abs( xxa );
-		x2 = x * x;
-
-		if ( x2 < 2.5625 ) {
-			t = x2 * x2;
-			ss = x * x2 * polevl (t, sn, 5) / p1evl (t, sd, 6);
-			cc = x * polevl (t, cn, 5) / polevl (t, cd, 6);
-		} else if ( x > 36974.0 ) {
-			cc = 0.5;
-			ss = 0.5;
-		} else {
-			x2 = x * x;
-			t = M_PI * x2;
-			u = 1.0 / (t * t);
-			t = 1.0 / t;
-			f = 1.0 - u * polevl (u, fn, 9) / p1evl(u, fd, 10);
-			g = t * polevl (u, gn, 10) / p1evl (u, gd, 11);
-
-			t = M_PI * 0.5 * x2;
-			c = cos (t);
-			s = sin (t);
-			t = M_PI * x;
-			cc = 0.5 + (f * s - g * c) / t;
-			ss = 0.5 - (f * c + g * s) / t;
-		}
-
-		if ( xxa < 0.0 ) {
-			cc = -cc;
-			ss = -ss;
-		}
-
-		point.x = cc;
-		point.y = ss;
-
-		return point;
-	}
-
-	var stepCnt = 100;
-	var scalar = Math.sqrt(length / Math.max(Math.abs(curvStart), Math.abs(curvEnd))) * Math.sqrt(Math.PI);
-	var startArcLength = length * (Math.min(Math.abs(curvStart), Math.abs(curvEnd)) / Math.abs(curvStart - curvEnd));
-	var reverse = false;
-	var t = 0, Rt, At, x, y;
-	var points = [];
-
-	if (Math.abs(curvEnd) < Math.abs(curvStart)) {
-		// the start of the normal spiral should be the end of the resulting curve
-		reverse = true;
-	}
-	
-	for (var s = startArcLength; s < startArcLength + length + length/stepCnt; s += length / stepCnt) {
-
-		if (s > startArcLength + length) s  = startArcLength + length;
-
-		t =  s / scalar;
-		var point = fresnel(t);
-		//Rt = (0.506 * t + 1) / (1.79 * Math.pow(t, 2) + 2.054 * t + Math.sqrt(2));
-		//At = 1 / (0.803 * Math.pow(t, 3) + 1.886 * Math.pow(t,2) + 2.524 * t + 2);
-		//x = 0.5 - Rt * Math.sin(Math.PI / 2 * (At - Math.pow(t, 2)));
-		//y = 0.5 - Rt * Math.cos(Math.PI / 2 * (At - Math.pow(t, 2)));
-		if (Math.sign(curvStart + curvEnd) < 0) point.y *= -1;
-		point.x *= scalar;
-		point.y *= scalar;
-
-		// add offset along normal direction (prependicular to tangent)
-		var curv = s / length * Math.abs(curvEnd - curvStart);
-		var theta = s / 2 * curv;
-		if (Math.sign(curvStart + curvEnd) <0) theta *= -1;
-		point.x += Math.abs(tOffset) * Math.cos(theta + Math.PI / 2 * Math.sign(tOffset));
-		point.y += Math.abs(tOffset) * Math.sin(theta + Math.PI / 2 * Math.sign(tOffset));
-		if (point.x < 1e-10) point.x = 0;
-
-		points.push(point);
-	}
-
-	// transform
-	var len = points.length;
-	if (reverse) {
-		var tmp;
-		for (var i = 0; i < len / 2; i++) {
-			tmp = points[i].y;
-			points[i].y = points[len - 1 - i].y;
-			points[len - 1 - i].y = tmp;
-		}
-	}
-	if (startArcLength != 0 || reverse) {
-		for (var i = 1; i < len; i++) {
-			points[i].x -= points[0].x;
-			points[i].y -= (points[0].y - tOffset);
-		}
-		points[0].x = 0;
-		points[0].y = tOffset;
-	}
-	if (reverse) {
-		var alpha = Math.sign(curvStart + curvEnd) * (startArcLength + length) * Math.max(Math.abs(curvStart), Math.abs(curvEnd)) / 2;
-		rotate2D(points, points[0].x, points[0].y, alpha);
-	}
-
-	rotate2D(points, 0, 0, hdg);
-
-	for (var i = 0; i < points.length; i++) {
-		var point = points[i];
-		point.x += sx;
-		point.y += sy;
-	}
-	/*
-	// calculate length and error
-	var s = 0;
-	for (var i = 1; i < points.length; i++) {
-		s += Math.sqrt(Math.pow(points[i].x - points[i-1].x, 2) + Math.pow(points[i].y - points[i-1].y, 2));
-	}
-	*/
-	return points;
-}
-
-function createClothoid(length, sx, sy, hdg, curvStart, curvEnd, tOffset) {
-
-	if (curvStart == curvEnd) {
-		console.warn('clothoid error: invalid curvature, use line or arc to draw');
-		return;
-	}
-
-	var points = generateClothoidPoints(length, sx, sy, hdg, curvStart, curvEnd, tOffset ? tOffset : 0);
-
-	var path = new THREE.Path(points);
-	var geometry = path.createPointsGeometry(points.length);
-	var material = new THREE.MeshBasicMaterial({color: 0xFFC125});
-	var clothoid = new THREE.Line(geometry, material);
-	
-	return clothoid;
-}
-
-/*
 * Create sample points for a cicular arc (step is 1m)
 *
 * @Param length the length of arc
@@ -1591,7 +1358,7 @@ function generateArcPoints(length, elevationLateralProfile, heights, sx, sy, hdg
 		do {
 			
 			if (s == 0) {
-				points.push(new THREE.Vector3(sx, sy, elevations[0].a));		
+				points.push(new THREE.Vector3(sx, elevations[0].a, -sy));
 				heading.push(currentHeading);
 				if (lateralOffset) tOffset.push(lateralOffset.a);
 				sOffset.push(s);
@@ -1614,8 +1381,8 @@ function generateArcPoints(length, elevationLateralProfile, heights, sx, sy, hdg
 			prePoint = points[points.length - 1];
 
 			x = prePoint.x + (s - preS) * Math.cos(currentHeading + curvature * (s - preS) / 2);
-			y = prePoint.y + (s - preS) * Math.sin(currentHeading + curvature * (s - preS) / 2);
-			z = cubicPolynomial(s - elevationSOffset, elevations[i].a, elevations[i].b, elevations[i].c, elevations[i].d);
+			z = prePoint.z - (s - preS) * Math.sin(currentHeading + curvature * (s - preS) / 2);
+			y = cubicPolynomial(s - elevationSOffset, elevations[i].a, elevations[i].b, elevations[i].c, elevations[i].d);
 
 			currentHeading += curvature * (s - preS);
 			
@@ -1633,14 +1400,14 @@ function generateArcPoints(length, elevationLateralProfile, heights, sx, sy, hdg
 	// fix the error by altering the end point to he connecting road's start
 	if (typeof ex == 'number' && typeof ey == 'number') {
 
-		var delta = new THREE.Vector3(ex - points[points.length - 1].x, ey - points[points.length - 1].y, 0);
+		var delta = new THREE.Vector3(ex - points[points.length - 1].x, 0, -ey - points[points.length - 1].z);
 		points[points.length - 1].x = ex;
-		points[points.length - 1].y = ey;
+		points[points.length - 1].z = -ey;
 
 		// distrubte error across sample points for central clothoid 		
 		for (var i = points.length - 2; i > -1; i--) {
 			points[i].x += delta.x * sOffset[i] / length;
-			points[i].y += delta.y * sOffset[i] / length;
+			points[i].z += delta.z * sOffset[i] / length;
 		}
 	}
 
@@ -1699,9 +1466,9 @@ function generateArcPoints(length, elevationLateralProfile, heights, sx, sy, hdg
 			}
 
 			svector = new THREE.Vector3(1, 0, 0);
-			svector.applyAxisAngle(new THREE.Vector3(0, 0, 1), currentHeading);
+			svector.applyAxisAngle(new THREE.Vector3(0, 1, 0), currentHeading);
 			tvector = svector.clone();
-			tvector.cross(new THREE.Vector3(0, 0, -1));
+			tvector.cross(new THREE.Vector3(0, -1, 0));
 
 			if (t != 0) {
 				var superelevationAngle = cubicPolynomial(ds + elevationS0 - superelevation.s, superelevation.a, superelevation.b, superelevation.c, superelevation.d);
@@ -1922,8 +1689,8 @@ function generateCubicPoints(offset, length, elevationLateralProfile, heights, s
 			}
 
 			x = sx + (ds + elevationSOffset) * Math.cos(hdg);
-			y = sy + (ds + elevationSOffset) * Math.sin(hdg);
-			z = cubicPolynomial(ds, elevations[i].a, elevations[i].b, elevations[i].c, elevations[i].d);
+			z = -sy - (ds + elevationSOffset) * Math.sin(hdg);
+			y = cubicPolynomial(ds, elevations[i].a, elevations[i].b, elevations[i].c, elevations[i].d);
 
 			points.push(new THREE.Vector3(x, y, z));
 			sOffset.push(ds + elevationSOffset);
@@ -1988,9 +1755,9 @@ function generateCubicPoints(offset, length, elevationLateralProfile, heights, s
 			}
 
 			svector = new THREE.Vector3(1, 0, 0);
-			svector.applyAxisAngle(new THREE.Vector3(0, 0, 1), hdg);
+			svector.applyAxisAngle(new THREE.Vector3(0, 1, 0), hdg);
 			tvector = svector.clone();
-			tvector.cross(new THREE.Vector3(0, 0, -1));
+			tvector.cross(new THREE.Vector3(0, -1, 0));
 
 			if (t != 0) {
 				var superelevationAngle = cubicPolynomial(ds + elevationS0 - superelevation.s, superelevation.a, superelevation.b, superelevation.c, superelevation.d);
@@ -2078,7 +1845,7 @@ function drawReferenceLine(geometry, elevations) {
 	}
 
 	// referec line's horizontal positon sets to 0.001 (higher than lanes and same as roadMarks' 0.001 to be on top to avoid covering)
-	mesh.position.set(0, 0, 0.001)
+	mesh.position.set(0, 0.001, 0)
 	scene.add(mesh);
 }
 
@@ -2194,93 +1961,6 @@ function drawRoadsByIds(roadIds, isElevated) {
 }
 
 /*
-* Create a rectangle shape by walking along vertices v1, v2, v3, v4
-*
-* @Param v1, v2, v3, v4 vertices in 2D Vector
-*/
-function createRectShape(v1, v2, v3, v4) {
-
-	var shape = new THREE.Shape();
-	shape.moveTo(v1.x, v1.y);
-	shape.lineTo(v2.x, v2.y);
-	shape.lineTo(v3.x, v3.y);
-	shape.lineTo(v4.x, v4.y);
-
-	return shape;
-}
-
-/*
-* Create an arc ring shape given arc center, inner border curvature, length, outer border radius, v1, and v3
-*
-* @Param center 2D Vector the center of the arc
-* @Param v1, v3 2D Vector two of the vertices
-* @Param iRadius the radius of the innder border arc
-* @Param oRadius the radius of the outer border arc
-* @Param rotation the rotation direction of the 
-* @Param theta the angle swept by the arc
-* @Param isClockwise true if inner border arc is clockwise, false if not
-*
-*	  ----- v1---- inner border ---v2 ----				v4---------------------v3
-*			|						|		or			|						|
-*			|						|					|						|
-*			v4---------------------v3		 	  ----- v1---- inner border ---v2 ----	 
-*/
-function createArcShape(center, v1, v3, iRadius, oRadius, rotation, theta, isClockwise) {
-
-	var shape = new THREE.Shape();
-	shape.moveTo(v1.x, v1.y);
-	shape.absarc(center.x, center.y, iRadius, rotation, rotation + theta, isClockwise);
-	shape.lineTo(v3.x, v3.y);
-	shape.absarc(center.x, center.y, oRadius, rotation + theta, rotation, !isClockwise);
-	//shape.lineTo(v1.x, v1.y);		// if add this line, road#515 geometry#2 lane#-2 won't draw, same error happens to road#517 do not know why
-	
-	return shape;
-}
-
-/*
-* Create a custom shape defined by innerBorder points and outerBorder points
-*
-* NOTE: according to the way of generating sample border points, due to js's caculation error, the last step may just close to length but smaller, thus adding another step to let the step oversize to be clamped to length, this point is very close to the last second one (after reversed generated sample outerBorder, the two problemtic points is oBorder's first two point)
-* When drawing road#509 geometry#4 and geometry#5 (bot are 'line'), the above situation causes a triangulate error
-* But 3 triangulate errors remain after adding the checking for extremely adjacent points
-* No errors happen for crossing8.xdor if handle the adjacent points before create custome line
-*
-* @Param iBorderPoints spline points for inner border spline
-* @Param oBorderPoints spline points for outer border spline
-*/
-function createCustomShape(iBorderPoints, oBorderPoints) {
-
-	var shape = new THREE.Shape();
-	shape.moveTo(iBorderPoints[0].x, iBorderPoints[0].y);
-	for (var i = 1; i < iBorderPoints.length; i++) {
-		shape.lineTo(iBorderPoints[i].x, iBorderPoints[i].y);
-	}
-	for (var i = 0; i < oBorderPoints.length; i++) {
-		//if (i < oBorderPoints.length - 1 && oBorderPoints[i].distanceTo(oBorderPoints[i + 1]) < 1E-15) {
-		//	console.log('oBorderPoints#' + i + ' and #' + (i + 1) + ' too close: distance ' + oBorderPoints[i].distanceTo(oBorderPoints[i + 1]));
-		//	continue;
-		//}
-		shape.lineTo(oBorderPoints[i].x, oBorderPoints[i].y);
-	}
-	shape.lineTo(iBorderPoints[0].x, iBorderPoints[0].y);
-
-	return shape;
-}
-
-/*
-* Helper function for paving - reverse oBorder points to connect with iBorder in counter-clockwise or clockwise direction
-* NOTE: passing argumnent points is passed by ptr
-*/
-function reversePoints(points) {
-
-	for (var i = 0; i < points.length / 2; i++) {
-		var tmp = points[i];
-		points[i] = points[points.length - 1 - i];
-		points[points.length - i - 1] = tmp;
-	}
-}
-
-/*
 * Create a custome geometry defined by innerBorder points and outerBorder points
 *
 * lBorderPoints and rBorderPoints increase towards the same direction (+S), i.e. no reverse needed
@@ -2388,7 +2068,7 @@ function drawCustomLine(points, color) {
 function drawLineAtPoint(point, hdg, length, color) {
 
 	length = length || 10;
-	var points = [new THREE.Vector3(point.x, point.y, point.z), new THREE.Vector3(point.x + length * Math.cos(hdg), point.y + length * Math.sin(hdg), point.z)];
+	var points = [new THREE.Vector3(point.x, point.y, point.z), new THREE.Vector3(point.x + length * Math.cos(hdg), point.y, point.z - length * Math.sin(hdg))];
 	drawCustomLine(points, color);
 }
 
@@ -2626,7 +2306,7 @@ function drawRoadMark(laneSectionStart, laneId, oBorder, elevationLateralProfile
 			mesh.add(new THREE.Mesh(rgeometry, colorMaterial[roadMark.color]));
 		}
 
-		mesh.position.set(0,0,0.001);
+		mesh.position.set(0,0.001,0);
 		scene.add(mesh);
 	}
 }
@@ -2702,7 +2382,7 @@ function paveLane(laneSectionStart, geometry, elevationLateralProfile, lane) {
 	}
 
 	var iBorderPoints, oBorderPoints, topiBorderPoints, topoBorderPoints;
-	// laneBase is lane face geometry without height, the rest 5 are used when lane has height, thus lane has six face geometry
+	// laneBase is lane face geomtry without height, the rest 5 are used when lane has height, thus lane has six face geometry
 	var laneBase, laneTop, laneInnerSide, laneOuterSide, lanePositiveS, laneNegativeS;
 	var mesh;
 
@@ -2823,10 +2503,10 @@ function paveLane(laneSectionStart, geometry, elevationLateralProfile, lane) {
 
 				var centralSample = generateSpiralPoints(geometry.centralLength, null, null, geometry.centralX, geometry.centralY, geometry.hdg, geometry.spiral.curvStart, geometry.spiral.curvEnd, geometry.ex, geometry.ey, null, gOffset, length);
 				var sx = centralSample.points[0].x;
-				var sy = centralSample.points[0].y;
+				var sy = -centralSample.points[0].z;
 				hdg = centralSample.heading[0];
 				ex = centralSample.points[centralSample.points.length - 1].x;
-				ey = centralSample.points[centralSample.points.length - 1].y;
+				ey = -centralSample.points[centralSample.points.length - 1].z;
 
 				//* NOTE: for spiral only, all its x,y, ex,ey, curvStart, curvEnd are the same as central reference line, i.e. keeps the same as original geometry when paving across lanes
 				oGeometry.x = sx;
@@ -3691,15 +3371,15 @@ function generateDefaultSignMesh() {
 	var signTopHeight = 0.7;
 	var signTopThickness = 0.01; 
 
-	var geometry = new THREE.BoxBufferGeometry(signTopWidth, signTopThickness, signTopHeight);
+	var geometry = new THREE.BoxBufferGeometry(signTopWidth, signTopHeight, signTopThickness);
 	var material = new THREE.MeshBasicMaterial({color: 0x6F6F6F});
 	var signTop = new THREE.Mesh(geometry, material);
-	signTop.rotateY(-Math.PI / 4);
-	signTop.position.set(0, -poleRadius - signTopThickness / 2, poleHeight - signTopHeight / 2);
+	signTop.rotateZ(-Math.PI / 4);
+	signTop.position.set(0, poleHeight - signTopHeight / 2, poleRadius + signTopThickness / 2);
 
-	geometry = new THREE.BoxBufferGeometry(2*poleRadius, 2*poleRadius, poleHeight);
+	geometry = new THREE.BoxBufferGeometry(2*poleRadius, poleHeight, 2*poleRadius);
 	var signlPole = new THREE.Mesh(geometry, material);
-	signlPole.position.set(0, 0, poleHeight / 2);
+	signlPole.position.set(0, poleHeight / 2, 0);
 
 	var sign = new THREE.Group();
 	sign.add(signTop);
@@ -3717,30 +3397,27 @@ function generateDefaultSignalMesh() {
 	var signalBoxHeight = 0.8;
 	var signalLightRadius = signalBoxHeight / 10;
 
-	var geometry = new THREE.BoxBufferGeometry(signalBoxWidth, signalBoxDepth, signalBoxHeight);
+	var geometry = new THREE.BoxBufferGeometry(signalBoxWidth, signalBoxHeight, signalBoxDepth);
 	var material = new THREE.MeshBasicMaterial({color: 0x6F6F6F});
 	var signalBox = new THREE.Mesh(geometry, material);
-	signalBox.position.set(0, poleRadius - signalBoxDepth / 2, poleHeight - signalBoxHeight / 2);
+	signalBox.position.set(0, poleHeight - signalBoxHeight / 2, -poleRadius + signalBoxDepth / 2);
 
-	geometry = new THREE.BoxBufferGeometry(2*poleRadius, 2*poleRadius, poleHeight);
+	geometry = new THREE.BoxBufferGeometry(2*poleRadius, poleHeight, 2*poleRadius);
 	var signalPole = new THREE.Mesh(geometry, material);
-	signalPole.position.set(0, 0, poleHeight / 2);
+	signalPole.position.set(0, poleHeight / 2, 0);
 
 	geometry = new THREE.CircleBufferGeometry(signalLightRadius, 32);
 	material = new THREE.MeshBasicMaterial({color: 0xFF0000});
 	var redLight = new THREE.Mesh(geometry, material);
-	redLight.rotateX(Math.PI / 2);
-	redLight.position.set(0, poleRadius - signalBoxDepth - 0.01, poleHeight - signalLightRadius * 2);
-	
+	redLight.position.set(0, poleHeight - signalLightRadius * 2, -poleRadius + signalBoxDepth + 0.01);
+
 	material = new THREE.MeshBasicMaterial({color: 0xFFFF00});
 	var yellowLight = new THREE.Mesh(geometry, material);
-	yellowLight.rotateX(Math.PI / 2);
-	yellowLight.position.set(0, poleRadius - signalBoxDepth - 0.01, poleHeight - signalLightRadius * 5);
+	yellowLight.position.set(0, poleHeight - signalLightRadius * 5, -poleRadius + signalBoxDepth + 0.01);
 
 	material = new THREE.MeshBasicMaterial({color: 0x00CD00});
 	var greenLight = new THREE.Mesh(geometry, material);
-	greenLight.rotateX(Math.PI / 2);
-	greenLight.position.set(0, poleRadius - signalBoxDepth - 0.01, poleHeight - signalLightRadius * 8);
+	greenLight.position.set(0, poleHeight - signalLightRadius * 8, -poleRadius + signalBoxDepth + 0.01);
 
 	var signal = new THREE.Group();
 	signal.add(signalBox);
@@ -3758,7 +3435,7 @@ function placeSignal(signal) {
 	var transform = track2Inertial(signal.road, signal.s, signal.t, 0);
 	var position = transform.position;
 	var rotation = transform.rotation;
-	position.z += signal.zOffset;
+	position.y += signal.zOffset;
 
 	// traffic signals' mesh use from outside, need to provide such an interface (signalType - signalMesh)
 	// for now, use a simple self generated one
@@ -3767,14 +3444,14 @@ function placeSignal(signal) {
 	else
 		mesh = generateDefaultSignMesh();
 	mesh.position.set(position.x, position.y, position.z);	
-	mesh.rotation.set(0, 0, rotation.z + Math.PI / 2);
+	mesh.rotation.set(0, rotation.y + Math.PI / 2, 0);
 
 	if (signal.orientation == '+') {
-		mesh.rotateZ(Math.PI);
+		mesh.rotateY(Math.PI);
 	}
 
 	drawSphereAtPoint(position, 0xFF0000)
-	drawLineAtPoint(position, mesh.rotation.z - Math.PI / 2, 1, 0xFF0000)
+	drawLineAtPoint(position, mesh.rotation.y - Math.PI / 2, 1, 0xFF0000)
 
 	scene.add(mesh);
 }
@@ -4120,7 +3797,7 @@ function track2Inertial(roadId, s, t, h) {
 		case 'line':
 			hdg = geometry.hdg;
 			x = geometry.x + sOffset * Math.cos(geometry.hdg);
-			y = geometry.y + sOffset * Math.sin(geometry.hdg);
+			z = -geometry.y - sOffset * Math.sin(geometry.hdg);
 			
 			break;
 		case 'spiral':
@@ -4128,7 +3805,7 @@ function track2Inertial(roadId, s, t, h) {
 			var sample = generateSpiralPoints(geometry.length, null, null, geometry.x, geometry.y, geometry.hdg, geometry.spiral.curvStart, geometry.spiral.curvEnd, geometry.ex, geometry.ey, null, sOffset, geometry.length + geometry.s - s);
 			hdg = sample.heading[0];
 			x = sample.points[0].x;
-			y = sample.points[0].y;
+			z = sample.points[0].z;
 
 			break;
 		case 'arc':
@@ -4138,15 +3815,16 @@ function track2Inertial(roadId, s, t, h) {
 			var theta = sOffset * curvature;
 			hdg = geometry.hdg + theta;
 			x = geometry.x - radius * Math.cos(rotation) + radius * Math.cos(rotation + theta);
-			y = geometry.y - radius * Math.sin(rotation) + radius * Math.sin(rotation + theta);
+			z = geometry.y - radius * Math.sin(rotation) + radius * Math.sin(rotation + theta);
+			z *= -1;
 			
 			break;
 	}
 
 	sOffset = s - elevation.s;
-	z = cubicPolynomial(sOffset, elevation.a, elevation.b, elevation.c, elevation.d);
-	var prez = cubicPolynomial(sOffset - 0.1, elevation.a, elevation.b, elevation.c, elevation.d);
-	pitch = Math.atan((z - prez) / 0.1);
+	y = cubicPolynomial(sOffset, elevation.a, elevation.b, elevation.c, elevation.d);
+	var prey = cubicPolynomial(sOffset - 0.1, elevation.a, elevation.b, elevation.c, elevation.d);
+	pitch = Math.atan((y - prey) / 0.1);
 
 	sOffset = s - superelevation.s;
 	var superelevationAngle = cubicPolynomial(sOffset, superelevation.a, superelevation.b, superelevation.c, superelevation.d);
@@ -4162,10 +3840,10 @@ function track2Inertial(roadId, s, t, h) {
 
 	// find x, y, z in s - t - h
 	var svector = new THREE.Vector3(1, 0, 0);
-	svector.applyAxisAngle(new THREE.Vector3(0, 0, 1), hdg);
+	svector.applyAxisAngle(new THREE.Vector3(0, 1, 0), hdg);
 
 	var tvector = svector.clone();
-	tvector.cross(new THREE.Vector3(0, 0, -1));
+	tvector.cross(new THREE.Vector3(0, -1, 0));
 	tvector.applyAxisAngle(svector, roll);
 
 	var hvector = svector.clone();
@@ -4180,7 +3858,7 @@ function track2Inertial(roadId, s, t, h) {
 
 	return {
 		position: new THREE.Vector3(x, y, z),
-		rotation: new THREE.Euler(roll, -pitch, hdg, 'XYZ')
+		rotation: new THREE.Euler(roll, hdg, pitch, 'XYZ')
 	}
 }
 
@@ -4233,54 +3911,15 @@ function getLinkInfo(roadId) {
 /*************************************************************
 **				Editor SubGroupah functions					**
 **************************************************************/
-
-/*
-* Show geometry in plan view
-*/
-function geometryPlanView(roadId) {
-
-	var isElevated = true;
-	drawRoad(map.roads[roadId], isElevated);
-}
-
-/*
-* Show elevation profile from -t as ponit of view (draw s in a straight line)
-*/
-function elevationSView(roadId) {
-
-	var elevations = map.roads[roadId].elevation;
-
-	if (!elevations)
-		elevations = [{s: 0, a: 0, b: 0, c: 0, d: 0}];
-
-	for (var i = 0; i < elevations.length; i++) {
-
-		var elevation = elevations[i];
-		var nextElevationS = elevations[i + 1] ? elevations[i + 1].s : map.roads[roadId].geometry[map.roads[roadId].geometry.length - 1].s + map.roads[roadId].geometry[map.roads[roadId].geometry.length - 1].length;
-
-		var points = generateCubicPoints(0, nextElevationS - elevation.s, null, null, elevation.s - elevations[0].s, 0, 0, elevation);
-
-		drawCustomLine(points, 0x000001);
-	}
-}
-
-/*
-* Show cross section of the road from -s as point of view
-*/
-function lateralView(roadId, s) {
-
-}
-
 /*
 * Show lane info along s (draw s in a straight line)
 */
-function laneSView(roadId, laneSectionId) {
+function lanePlaneView(roadId, laneSectionId) {
 
 	var road = map.roads[roadId];
 	var laneSection = road.laneSection[laneSectionId];
 	var lanes = laneSection.lane;
 }
-
 
 /*************************************************************
 **				Importing/Exporting Roads					**
@@ -4297,65 +3936,20 @@ function loadOBJ(objFile) {
 
 
 function test() {
-	var roadIds = getConnectingRoadIds('500');
-	//paveRoadsByIds(roadIds);
-
-	// check if road.length is the same as the last geometry.s + geometry.length - tiny errors exist for some roads 
-	for (var id in map.roads) {
-		var road = map.roads[id];
-		//if (road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length != road.length)
-		//console.log(road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length, road.length)
-	}
-
-	var s = 0.48666;
-	var t = 0;
-	var h = 1;
-	//var point = track2Inertial('500', s, t, h).position;
-	//drawLineAtPoint(point, 0, 0x000001)
-
-	var rBorderPoints = [new THREE.Vector3(-1, 1, 1), new THREE.Vector3(-1, -1, 1)]
-	var lBorderPoints = [new THREE.Vector3(1, 1, 1), new THREE.Vector3(1, -1, 1), new THREE.Vector3(1, -2, 1)]
-	var geometry = createCustomFaceGeometry(lBorderPoints, rBorderPoints)
-	var material = new THREE.MeshBasicMaterial({color: 0xFF0000, side: THREE.DoubleSide});
-	var mesh = new THREE.Mesh(geometry, material);
-	//scene.add(mesh);
-
-	var svector, tvector, hvector;
-
-	svector = new THREE.Vector3(1, 0, 0);
-	svector.applyAxisAngle(new THREE.Vector3(0, 0, 1), 0);
-
-	tvector = svector.clone();
-	tvector.cross(new THREE.Vector3(0, 0, -1));
-	tvector.applyAxisAngle(svector, Math.PI / 4);
-	
-	hvector = svector.clone();
-	hvector.cross(tvector);
-
-	//drawDirectionalVector(svector, 0xFF0000);
-	//drawDirectionalVector(tvector, 0x0000FF);
-	//drawDirectionalVector(hvector, 0x00FF00);
-
-	//scene.add(generateDefaultSignMesh());
-	//scene.add(generateDefaultSignalMesh());
-
-	//loadOBJ('../data/trumpet.obj');
 
 	//paveRoads(map.roads)
-	//paveRoads(map.roads, true)
+	paveRoads(map.roads, true)
 	//paveRoadsByIds(['5'], true)
 	//paveLaneSection(map.roads['5'], 3, [], true)
 
-	//placeSignals(map.signals);
+	placeSignals(map.signals);
 	//placeSignalsInRoads(['5']);
 	//placeSignalsByIds(['40'])
 
 	//drawRoads(map.roads)
-	//drawRoads(map.roads, true)
+	drawRoads(map.roads, true)
 	//drawRoadsByIds(['500'], true)
 	//drawRoadByLaneSections('5', [0, 1, 2, 3], true)
 	//drawRoadByLaneSectionGeometries('5', 3, [0, 1], true)
-
-	geometryPlanView('509')
 
 }
