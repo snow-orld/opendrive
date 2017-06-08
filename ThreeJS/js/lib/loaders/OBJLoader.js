@@ -61,6 +61,7 @@ THREE.OBJLoader.prototype = {
 
 			var material = {
 				name: '',
+				color: null,
 				smooth: true
 			};
 
@@ -325,6 +326,12 @@ THREE.OBJLoader.prototype = {
 
 				object.material.name = line.substring( 7 ).trim();
 
+			} else if ( /^meshcolor /.test( line ) ) {
+
+				// material color
+				var rgb = line.substring(9).trim().split(' ');
+				object.material.color = new THREE.Color(parseFloat(rgb[0]), parseFloat(rgb[1]), parseFloat(rgb[2]));
+				
 			} else if ( /^mtllib /.test( line ) ) {
 
 				// mtl file
@@ -380,8 +387,10 @@ THREE.OBJLoader.prototype = {
 
 			if ( !material ) {
 
-				material = new THREE.MeshPhongMaterial();
+				//material = new THREE.MeshPhongMaterial();
+				material = new THREE.MeshBasicMaterial();
 				material.name = object.material.name;
+				material.color = object.material.color;
 
 			}
 

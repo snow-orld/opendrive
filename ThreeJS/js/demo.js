@@ -1,15 +1,18 @@
 var scene, camera, renderer;
-var container;
+var raycaster, mouse;
+var container, stats;
 var step = 1; // generate point in step 1m for spiral curve, later apply to arc generation
 
-var map = parseXML("../data/Crossing8Course.xodr");
+var group = {road: [], roadMark: [], referenceLine: [], signal: []};	// remember added mesh for GUI to hide mesh
+
+var map;
+//var map = parseXML("../data/Crossing8Course.xodr");
 //var map = parseXML("../data/CrossingComplex8Course.xodr");	// lane lateral shift cause incontinious
-//var map = parseXML("../data/Roundabout8Course.xodr");		// error - taken as a rare case when spiral ends a geometry
+//var map = parseXML("../data/Roundabout8Course.xodr");			// error - taken as a rare case when spiral ends a geometry
 //var map = parseXML("../data/CulDeSac.xodr");
-//var map = parseXML("../data/Country.xodr");				// dead loop due to extremly short E-14 laneSection length, when generating cubic points using for loop
+//var map = parseXML("../data/Country.xodr");					// dead loop due to extremly short E-14 laneSection length, when generating cubic points using for loop
 //var map = parseXML("../data/test.xodr");
 
-preProcessing(map.roads);
 init();
 animate();
 
@@ -23,15 +26,13 @@ function init() {
 	/** Setting up camera */
 	camera = new THREE.PerspectiveCamera(100, window.innerWidth / window.innerHeight, 0.05, 10000);
 	camera.position.set(0, 0, 200);
-	//camera.lookAt(new THREE.Vector3(0, 0, 20));
 	scene.add(camera);
 
 	/** Setting up light */
-	//scene.add(new THREE.AmbientLight(0xf0f0f0));
+	scene.add(new THREE.AmbientLight(0xf0f0f0));
 
 	/** Settting up Plane with Grid Helper */
-	var planeGeometry = new THREE.PlaneGeometry(1000, 1000);
-	planeGeometry.rotateX(- Math.PI / 2);
+	var planeGeometry = new THREE.PlaneGeometry(10000, 10000);
 	var planeMaterial = new THREE.ShadowMaterial();
 	planeMaterial.opacity = 0.2;
 	var plane = new THREE.Mesh(planeGeometry, planeMaterial);
@@ -56,12 +57,36 @@ function init() {
 	/** Setting up controls */
 	controls = new THREE.OrbitControls(camera, renderer.domElement);
 
-	test();
+	/** Setting up Stats */
+	stats = new Stats();
+	container.appendChild(stats.dom);
+
+	/** Setting up window resize */
+	window.addEventListener( 'resize', onWindowResize, false );
+
+	/** Setting up GUI */
+	initGUI();
+
+	if (map) test();
 }
 
 function animate() {
 	requestAnimationFrame(animate);
-	renderer.render(scene, camera);
+	render();
+	stats.update();
+}
+
+function render() {
+	
+	if (raycaster) {
+		raycaster.setFromCamera(mouse, camera);
+		var intersects = raycaster.intersectObject(scene.children);
+		for ( var i = 0; i < intersects.length; i++ ) {
+			intersects[ i ].object.material.color.set( 0xFF0000 );
+		}
+	}
+
+	renderer.render( scene, camera );
 }
 
 function parseXML(xmlFile) {
@@ -297,7 +322,7 @@ function parseXML(xmlFile) {
 
 				// 0+
 				var roadMarkNodes = laneNode.getElementsByTagName('roadMark');
-				roads[id].laneSection[j].lane[k].roadMark = [];		
+				if (roadMarkNodes.length) roads[id].laneSection[j].lane[k].roadMark = [];		
 
 				// 0+ not allowed for center lane
 				var materialNodes = laneNode.getElementsByTagName('material');
@@ -739,7 +764,7 @@ function getGeometryEndPosition(road, geometryId) {
 */
 function subDivideRoadGeometry(road) {
 
-	if (!road.laneOffset) {
+ 	if (!road.laneOffset) {
 		return road.geometry;
 	}
 
@@ -784,7 +809,7 @@ function subDivideRoadGeometry(road) {
 					if (geometry.type == 'spiral') {
 						subGeometry1.spiral = {};
 						subGeometry1.spiral.curvStart = geometry.spiral.curvStart;
-						subGeometry1.spiral.curvEnd = goemetry.spiral.curvStart + subGeometry1.length * (geometry.spiral.curvEnd - geometry.spiral.curvStart) / geometry.length;
+						subGeometry1.spiral.curvEnd = geometry.spiral.curvStart + subGeometry1.length * (geometry.spiral.curvEnd - geometry.spiral.curvStart) / geometry.length;
 					}
 
 					if (geometry.type == 'arc') {
@@ -853,7 +878,7 @@ function subDivideRoadGeometry(road) {
 				if (geometry.type == 'spiral') {
 					subGeometry.spiral = {};
 					subGeometry.spiral.curvStart = geometry.spiral.curvStart;
-					subGeometry.spiral.curvEnd = goemetry.spiral.curvStart + subGeometry.length * (geometry.spiral.curvEnd - geometry.spiral.curvStart) / geometry.length;
+					subGeometry.spiral.curvEnd = geometry.spiral.curvStart + subGeometry.length * (geometry.spiral.curvEnd - geometry.spiral.curvStart) / geometry.length;
 				}
 
 				if (geometry.type == 'arc') {
@@ -887,7 +912,7 @@ function subDivideRoadGeometry(road) {
 					if (geometry.type == 'spiral') {
 						subGeometry1.spiral = {};
 						subGeometry1.spiral.curvStart = geometry.spiral.curvStart;
-						subGeometry1.spiral.curvEnd = goemetry.spiral.curvStart + subGeometry1.length * (geometry.spiral.curvEnd - geometry.spiral.curvStart) / geometry.length;
+						subGeometry1.spiral.curvEnd = geometry.spiral.curvStart + subGeometry1.length * (geometry.spiral.curvEnd - geometry.spiral.curvStart) / geometry.length;
 					}
 
 					if (geometry.type == 'arc') {
@@ -921,23 +946,24 @@ function subDivideRoadGeometry(road) {
 
 /*
 * Pre-process each road's geometry entries based on laneOffset, making sure in each geometry, there is only one kind of laneOffset
-* @Param roads
+* @Param road
 */
-function preProcessing(roads) {
-	for (var id in roads) {
-		var road = roads[id];
-		road.geometry = subDivideRoadGeometry(road);
+function preProcess(road) {
 
-		// assign central reference line's position 
-		// and end position for each sub-devided geometry
-		for (var j=0; j < road.geometry.length; j++) {
-			var geometry = road.geometry[j];
-			var endPosition = getGeometryEndPosition(road, j);
-			geometry.ex = endPosition.ex;
-			geometry.ey = endPosition.ey;
-			geometry.centralX = geometry.x;
-			geometry.centralY = geometry.y;		
-		}
+	// make road.length and geometry entries corespondent
+	road.length = Math.min(road.length, road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length);
+
+	road.geometry = subDivideRoadGeometry(road);
+
+	// assign central reference line's position 
+	// and end position for each sub-devided geometry
+	for (var j=0; j < road.geometry.length; j++) {
+		var geometry = road.geometry[j];
+		var endPosition = getGeometryEndPosition(road, j);
+		geometry.ex = endPosition.ex;
+		geometry.ey = endPosition.ey;
+		geometry.centralX = geometry.x;
+		geometry.centralY = geometry.y;		
 	}
 }
 
@@ -2078,8 +2104,9 @@ function drawReferenceLine(geometry, elevations) {
 	}
 
 	// referec line's horizontal positon sets to 0.001 (higher than lanes and same as roadMarks' 0.001 to be on top to avoid covering)
-	mesh.position.set(0, 0, 0.001)
+	mesh.position.set(0, 0, 0.02);
 	scene.add(mesh);
+	group.referenceLine.push(mesh);
 }
 
 /*
@@ -2112,7 +2139,25 @@ function drawRoadByLaneSections(roadId, laneSectionIds, isElevated) {
 
 	var road = map.roads[roadId];
 	for (var i = 0; i < laneSectionIds.length; i++) {
-		drawRoadByLaneSectionGeometries(roadId, laneSectionIds[i], null, isElevated);
+		
+		var laneSection = road.laneSection[laneSectionIds[i]];
+		var nextLaneSectionS = road.laneSection[laneSectionIds[i] + 1] ? road.laneSection[laneSectionIds[i] + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
+
+		var geometries = getGeometry(road, laneSection.s, nextLaneSectionS);
+		var superelevations = getSuperElevation(road.elevation, laneSection.s, nextLaneSectionS);
+		
+		for (var j = 0; j < geometries.length; j++) {
+
+			var geometry = geometries[j];
+			if (!geometry.offset) geometry.offset = {a: 0, b: 0, c: 0, d: 0};
+
+			var elevations = null;
+			if (isElevated) {
+				elevations = getElevation(map.roads[roadId].elevation, geometry.s, geometry.s + geometry.length);
+			}
+
+			drawReferenceLine(geometry, elevations);
+		}
 	}
 }
 
@@ -2124,7 +2169,7 @@ function drawRoadByLaneSectionGeometries(roadId, laneSectionId, geometryIds, isE
 
 	var geometries = getGeometry(road, laneSection.s, nextLaneSectionS);
 	var superelevations = getSuperElevation(road.elevation, laneSection.s, nextLaneSectionS);
-	console.log('road#', roadId, 'laneSectoin#', laneSectionId, 'total geometries#', geometries.length, 'superelevations#', superelevations ? superelevations.length : 0);
+	console.log('road#', roadId, 'laneSection#', laneSectionId, 'total geometries#', geometries.length, 'superelevations#', superelevations ? superelevations.length : 0);
 
 	if (geometryIds) {
 
@@ -2170,6 +2215,7 @@ function drawRoadByGeometries(roadId, geometryIds, isElevated) {
 
 		drawReferenceLine(geometry, elevations);
 	}
+
 }
 
 /*
@@ -2392,8 +2438,9 @@ function drawLineAtPoint(point, hdg, length, color) {
 	drawCustomLine(points, color);
 }
 
-function drawSphereAtPoint(point, color) {
-	var geometry = new THREE.SphereBufferGeometry(0.08, 16, 16);
+function drawSphereAtPoint(point, radius, color) {
+
+	var geometry = new THREE.SphereBufferGeometry(radius || 0.08, 16, 16);
 	var material = new THREE.MeshBasicMaterial({color: color != undefined ? color : 0x00FF00});
 	var mesh = new THREE.Mesh(geometry, material);
 	mesh.position.set(point.x, point.y, point.z);
@@ -2425,6 +2472,8 @@ function drawDirectionalVector(vector3, color) {
 *	v4---------------------v3			
 */
 function drawRoadMark(laneSectionStart, laneId, oBorder, elevationLateralProfile, outerHeights, roadMarks) {
+
+	if (!roadMarks) return;
 
 	if (roadMarks.length == 0) return;
 
@@ -2626,8 +2675,10 @@ function drawRoadMark(laneSectionStart, laneId, oBorder, elevationLateralProfile
 			mesh.add(new THREE.Mesh(rgeometry, colorMaterial[roadMark.color]));
 		}
 
-		mesh.position.set(0,0,0.001);
+		mesh.position.set(0,0,0.002);
+		mesh.updateMatrixWorld();
 		scene.add(mesh);
+		group.roadMark.push(mesh);
 	}
 }
 
@@ -2661,9 +2712,10 @@ function paveLane(laneSectionStart, geometry, elevationLateralProfile, lane) {
 
 	if (lane.id == 0) {
 		subElevationLateralProfile.elevations = getElevation(elevationLateralProfile.elevations, geometry.s, geometry.s + geometry.length);
-		subElevationLateralProfile.superelevations = getSuperElevation(elevationLateralProfile.superelevations, geometry.s, geometry.s + geometry.length);
-		subElevationLateralProfile.crossfalls = getCrossfall(elevationLateralProfile.crossfalls, geometry.s, geometry.s + geometry.length);
-
+		if (!lane.level || lane.level == '1' || lane.level == 'true') {
+			subElevationLateralProfile.superelevations = getSuperElevation(elevationLateralProfile.superelevations, geometry.s, geometry.s + geometry.length);
+			subElevationLateralProfile.crossfalls = getCrossfall(elevationLateralProfile.crossfalls, geometry.s, geometry.s + geometry.length);
+		}
 		// width and border is not allowed for center lane. center lane only needs to draw the mark
 		drawRoadMark(laneSectionStart, lane.id, geometry, subElevationLateralProfile, null, lane.roadMark);
 		return;
@@ -2745,8 +2797,10 @@ function paveLane(laneSectionStart, geometry, elevationLateralProfile, lane) {
 
 		// elevations covered by this width segment
 		subElevationLateralProfile.elevations = getElevation(elevationLateralProfile.elevations, Math.max(width.sOffset + laneSectionStart, geometry.s), Math.min(nextWidthSOffset + laneSectionStart, geometry.s + geometry.centralLength));
-		subElevationLateralProfile.superelevations = getSuperElevation(elevationLateralProfile.superelevations, Math.max(width.sOffset + laneSectionStart, geometry.s), Math.min(nextWidthSOffset + laneSectionStart, geometry.s + geometry.centralLength));
-		subElevationLateralProfile.crossfalls = getCrossfall(elevationLateralProfile.crossfalls, Math.max(width.sOffset + laneSectionStart, geometry.s), Math.min(nextWidthSOffset + laneSectionStart, geometry.s + geometry.centralLength));
+		if (!lane.level || lane.level == '0' || lane.level == 'false') {
+			subElevationLateralProfile.superelevations = getSuperElevation(elevationLateralProfile.superelevations, Math.max(width.sOffset + laneSectionStart, geometry.s), Math.min(nextWidthSOffset + laneSectionStart, geometry.s + geometry.centralLength));
+			subElevationLateralProfile.crossfalls = getCrossfall(elevationLateralProfile.crossfalls, Math.max(width.sOffset + laneSectionStart, geometry.s), Math.min(nextWidthSOffset + laneSectionStart, geometry.s + geometry.centralLength));
+		}
 
 		// laneHeights of the current lane covered by this width segment {inner: array of {s, height}, outer: array of {s, height}}
 		var laneHeights = getLaneHeight(laneSectionStart, lane.height, Math.max(width.sOffset + laneSectionStart, geometry.s), Math.min(nextWidthSOffset + laneSectionStart, geometry.s + geometry.centralLength));
@@ -2976,6 +3030,7 @@ function paveLane(laneSectionStart, geometry, elevationLateralProfile, lane) {
 					mesh.add(backMesh);
 				}
 				scene.add(mesh);
+				group.road.push(mesh);
 			}
 		} catch(e) {
 			console.error(type, e.stack)
@@ -3642,6 +3697,8 @@ function paveRoadLaneSectionsByIds(road, laneSectionIds) {
 
 function paveRoad(road, isElevated) {
 
+	preProcess(road);
+
 	for (var i  = 0; i < road.laneSection.length; i++) {
 
 		try {
@@ -3667,7 +3724,7 @@ function paveRoads(roads, isElevated) {
 
 function paveRoadsByIds(roadIds, isElevated) {
 	for (var i=0; i < roadIds.length; i++) {
-		var road = map.roads[roadIds[i]];
+		var road = map.roads[roadIds[i]];	
 		paveRoad(road, isElevated);
 	}
 }
@@ -3698,12 +3755,15 @@ function generateDefaultSignMesh() {
 	signTop.position.set(0, -poleRadius - signTopThickness / 2, poleHeight - signTopHeight / 2);
 
 	geometry = new THREE.BoxBufferGeometry(2*poleRadius, 2*poleRadius, poleHeight);
-	var signlPole = new THREE.Mesh(geometry, material);
-	signlPole.position.set(0, 0, poleHeight / 2);
+	var signPole = new THREE.Mesh(geometry, material);
+	signPole.position.set(0, 0, poleHeight / 2);
+
+	signTop.updateMatrixWorld();
+	signPole.updateMatrixWorld();
 
 	var sign = new THREE.Group();
 	sign.add(signTop);
-	sign.add(signlPole);
+	sign.add(signPole);
 
 	return sign;
 }
@@ -3731,17 +3791,27 @@ function generateDefaultSignalMesh() {
 	var redLight = new THREE.Mesh(geometry, material);
 	redLight.rotateX(Math.PI / 2);
 	redLight.position.set(0, poleRadius - signalBoxDepth - 0.01, poleHeight - signalLightRadius * 2);
+	//redLight.position.set(0, - signalBoxDepth / 2 - 0.01, signalBoxHeight / 2 - signalLightRadius * 2);
 	
 	material = new THREE.MeshBasicMaterial({color: 0xFFFF00});
 	var yellowLight = new THREE.Mesh(geometry, material);
 	yellowLight.rotateX(Math.PI / 2);
 	yellowLight.position.set(0, poleRadius - signalBoxDepth - 0.01, poleHeight - signalLightRadius * 5);
+	//yellowLight.position.set(0, - signalBoxDepth / 2 - 0.01, signalBoxHeight / 2 - signalLightRadius * 5);
 
-	material = new THREE.MeshBasicMaterial({color: 0x00CD00});
+	material = new THREE.MeshBasicMaterial({color: 0x00CD00, name: 'green'});
 	var greenLight = new THREE.Mesh(geometry, material);
 	greenLight.rotateX(Math.PI / 2);
 	greenLight.position.set(0, poleRadius - signalBoxDepth - 0.01, poleHeight - signalLightRadius * 8);
+	//greenLight.position.set(0, - signalBoxDepth / 2 - 1, signalBoxHeight / 2 - signalLightRadius * 8);
 
+	signalBox.add(redLight);
+	signalBox.add(yellowLight);
+	signalBox.add(greenLight);
+
+	signalBox.updateMatrixWorld();
+	signalPole.updateMatrixWorld();
+	
 	var signal = new THREE.Group();
 	signal.add(signalBox);
 	signal.add(redLight);
@@ -3773,10 +3843,13 @@ function placeSignal(signal) {
 		mesh.rotateZ(Math.PI);
 	}
 
-	drawSphereAtPoint(position, 0xFF0000)
-	drawLineAtPoint(position, mesh.rotation.z - Math.PI / 2, 1, 0xFF0000)
+	mesh.updateMatrixWorld();
+
+	//drawSphereAtPoint(position, 0.08, 0xFF0000)
+	//drawLineAtPoint(position, mesh.rotation.z - Math.PI / 2, 1, 0xFF0000)
 
 	scene.add(mesh);
+	group.signal.push(mesh);
 }
 
 function placeSignals(signals) {
@@ -3792,6 +3865,15 @@ function placeSignalsByIds(signalIds) {
 	}
 }
 
+function placeSignalsInDirtyRoad(dirtyMap, road) {
+	if (road.signal) {
+		for (var j = 0; j < road.signal.length; j++) {
+			var signalId = road.signal[j];
+			placeSignal(dirtyMap.signals[signalId]);
+		}
+	}
+}
+
 function placeSignalsInRoads(roadIds) {
 
 	for (var i = 0; i < roadIds.length; i++) {
@@ -3803,9 +3885,9 @@ function placeSignalsInRoads(roadIds) {
 				var signalId = road.signal[j];
 				placeSignal(map.signals[signalId]);
 			}
-			console.log('roadId#', roadIds[i], 'signals', road.signal);
+			//console.log('roadId#', roadIds[i], 'signals', road.signal);
 		} else {
-			console.log('placeSignalsInRoads: no signals along road#', roadIds[i]);
+			//console.log('placeSignalsInRoads: no signals along road#', roadIds[i]);
 		}
 	}
 }
@@ -4235,6 +4317,722 @@ function getLinkInfo(roadId) {
 **************************************************************/
 
 /*
+* Init dat.gui
+*
+* CHALLENGE: map editor, how to interact with users
+*/
+function initGUI() {
+
+	var maps = {
+		Crossing8Course: 'Crossing8Course.xodr',
+		CrossingComplex8Course: 'CrossingComplex8Course.xodr',
+		Roundabout8Course: 'Roundabout8Course.xodr',
+		Country: 'Country.xodr',
+		Test: 'test.xodr',
+	}
+
+	var viewer = {
+		mapName: 'Choose Map',
+		referenceLine: false,
+		signal: false,
+	};
+
+	var editor = {
+		selectRoad: 'all',
+		resetEditions: (function() { resetEditions() }),
+		saveEditions: (function() { saveEditions(dirtyMap) }),
+	}
+
+	var dirtyMap = {roads: {}, signals: {}};	// edited roads and signals without saving yet
+
+	var exporter = {
+		saveAsJSON: ( function() { saveFile(map, viewer.mapName + '.json') } ),
+		saveAsOBJ: (function() { exportOBJ(group.road.concat(group.roadMark).concat(group.signal), viewer.mapName + '.obj') } ),
+	}
+
+	var detail = {
+		geometry: 'geometry info',
+	}
+
+	var gui = new dat.GUI({width: 300});
+	//gui.closed = true;
+
+	var mapExporter, mapViewer, mapEditor, editorReseter, editorSaver, roadDetail;
+	var referenceLine, signal;
+
+	mapExporter = gui.addFolder('Map Exporter');
+	mapExporter.add(exporter, 'saveAsJSON');
+	mapExporter.add(exporter, 'saveAsOBJ');
+
+	mapViewer = gui.addFolder('Map Viewer');
+	mapViewer.add(viewer, 'mapName', Object.keys(maps)).onChange( function(value) { resetViewer(); clearRoads(); rebuildMap(); paveRoads(map.roads, true); gui.removeFolder('Map Editor'); initEditor(); } );
+	resetViewer();
+	mapViewer.open();
+
+	function rebuildMap() {
+		if (map) {
+			delete map.roads;
+			delete map.signals;
+			delete map.controllers;
+			delete map.junctions;
+			delete map.junctionGroups;
+		}
+		map = parseXML('../data/' + maps[viewer.mapName]);
+	}
+
+	function resetViewer() {
+		if (referenceLine) mapViewer.remove(referenceLine);
+		if (signal) mapViewer.remove(signal);
+		if (viewer.referenceLine) viewer.referenceLine = false;
+		if (viewer.signal) viewer.signal = false;
+		referenceLine = mapViewer.add(viewer, 'referenceLine');
+		referenceLine.onChange( function(value) { if (value == true && !!map) drawRoads(map.roads, true); if (value == false && !!map) hide(group.referenceLine) } );
+		signal = mapViewer.add(viewer, 'signal')
+		signal.onChange( function(value) {if (value == true && !!map) placeSignals(map.signals); if (value == false && !!map) hide(group.signal); } );
+	}
+
+	function refreshRoad(road) {
+		clearRoads();
+		paveRoad(road, true);
+		drawRoad(road, true);
+		if (Object.keys(dirtyMap.signals).length) placeSignalsInDirtyRoad(dirtyMap, road);
+		else placeSignalsInDirtyRoad(map, road);
+	}
+
+
+	function initEditor() {
+
+		if (editor.selectRoad != 'all') editor.selectRoad = 'all';
+
+		mapEditor = gui.addFolder('Map Editor');
+		mapEditor.add(editor, 'selectRoad', new Object(['all']).concat(Object.keys(map.roads))).onChange( function(value) { 
+			clearRoads();
+			exitEditorMode();
+			if (value == 'all') {
+				paveRoads(map.roads, true);
+			}
+			else {
+				if (viewer.referenceLine || viewer.signal) resetViewer();
+				if (value in dirtyMap.roads) refreshRoad(dirtyMap.roads[value]);
+				else refreshRoad(map.roads[value]);
+				enterEditorMode();
+			}
+		});
+		mapEditor.open();
+	}
+
+	function enterEditorMode() {
+
+		if (!(editor.selectRoad in dirtyMap.roads)) {
+			dirtyMap.roads[editor.selectRoad] = JSON.parse(JSON.stringify(map.roads[editor.selectRoad]));
+		}
+
+		var road = dirtyMap.roads[editor.selectRoad];
+		var geometries = road.geometry;
+		var predecessorFolder, succesFolder;
+		var elevationFolder, superelevationFolder, crossfallFolder, laneOffsetFolder;
+		var geometryFolder, lanesFolder, laneSectionFolder, signalFolder;
+
+		var roadUI = {
+			name: road.name,
+			length: road.length,
+			type: road.type,
+			junction: road.junction,
+		}
+
+		function popPredecessor2Folder(predecessor, folder) {
+
+			var predecessorUI = {
+				elementType: predecessor.elementType,
+				elementId: predecessor.elementId,
+				contactPoint: predecessor.contactPoint,
+			}
+			folder.add(predecessorUI, 'elementType').__input.disabled = true;
+			folder.add(predecessorUI, 'elementId').__input.disabled = true;
+			if (predecessor.contactPoint) folder.add(predecessorUI, 'contactPoint').__input.disabled = true;
+		}
+
+		function popSuccessor2Folder(successor, folder) {
+
+			var successorUI = {
+				elementType: successor.elementType,
+				elementId: successor.elementId,
+				contactPoint: successor.contactPoint,
+			}
+			folder.add(successorUI, 'elementType').__input.disabled = true;
+			folder.add(successorUI, 'elementId').__input.disabled = true;
+			if (successor.contactPoint) folder.add(successorUI, 'contactPoint').__input.disabled = true;
+		}
+
+		function popGeometry2Folder(geometry, folder) {
+			
+			var geometryUI = {
+				s: geometry.s,
+				x: geometry.x,
+				y: geometry.y,
+				hdg: geometry.hdg,
+				length: geometry.length,
+				type: geometry.type,
+				offset: {a: geometry.offset.a, b: geometry.offset.b, c: geometry.offset.c, d: geometry.offset.d},
+			}
+			if (geometry.type == 'spiral') {
+				geometryUI.curvStart = geometry.spiral.curvStart;
+				geometryUI.curvEnd = geometry.spiral.curvEnd;
+			}
+			if (geometry.type == 'arc') {
+				geometryUI.curvature = geometry.arc.curvature;
+			}
+
+			folder.add(geometryUI, 's').__input.disabled = true;
+			folder.add(geometryUI, 'x').onChange(function(value) {geometry.x = value; refreshRoad(road);});
+			folder.add(geometryUI, 'y').onChange(function(value) {geometry.y = value; refreshRoad(road);});
+			folder.add(geometryUI, 'hdg', 0, Math.PI *2).onChange(function(value) {geometry.hdg = value; refreshRoad(road);});
+			folder.add(geometryUI, 'length', 0).onChange(function(value) {geometry.length = value; refreshRoad(road);});
+			folder.add(geometryUI, 'type');
+			if (geometry.type == 'spiral') {
+				folder.add(geometryUI, 'curvStart');
+				folder.add(geometryUI, 'curvEnd');
+			}
+			if (geometry.type == 'arc') {
+				folder.add(geometryUI, 'curvature');
+			}
+
+			var geometryOffset = folder.addFolder('Lane Offset');
+			geometryOffset.add(geometryUI.offset, 'a').onChange(function(value) {geometry.offset.a = value; refreshRoad(road);});
+			geometryOffset.add(geometryUI.offset, 'b').onChange(function(value) {geometry.offset.b = value; refreshRoad(road);});
+			geometryOffset.add(geometryUI.offset, 'c').onChange(function(value) {geometry.offset.c = value; refreshRoad(road);});
+			geometryOffset.add(geometryUI.offset, 'd').onChange(function(value) {geinetrt.offset.d = value; refreshRoad(road);});
+		}
+
+		function fillGeometryFolder(geometryFolder) {
+			if (geometries.length == 1) {
+				popGeometry2Folder(geometries[0], geometryFolder);
+			} else {
+				for (var i = 0; i < geometries.length; i++) {
+					popGeometry2Folder(geometries[i], geometryFolder.addFolder('Geometry ' + (i + 1)));
+				}
+			}
+		}
+
+		function popElevation2Folder(elevation, folder) {
+
+			var elevationUI = {
+				s: elevation.s,
+				a: elevation.a,
+				b: elevation.b,
+				c: elevation.c,
+				d: elevation.d,
+			}
+			folder.add(elevationUI, 's').__input.disabled = true;
+			folder.add(elevationUI, 'a').onChange(function(value) {elevation.a = value; refreshRoad(road);});
+			folder.add(elevationUI, 'b').onChange(function(value) {elevation.b = value; refreshRoad(road);});
+			folder.add(elevationUI, 'c').onChange(function(value) {elevation.c = value; refreshRoad(road);});
+			folder.add(elevationUI, 'd').onChange(function(value) {elevation.d = value; refreshRoad(road);});
+		}
+
+		function fillElevationFolder(elevationFolder) {
+			if (road.elevation.length == 1) {
+				popElevation2Folder(road.elevation[0], elevationFolder);
+			} else {
+				for (var i = 0; i < road.elevation.length; i++) {
+					popElevation2Folder(road.elevation[i], elevationFolder.addFolder('Elevation ' + (i + 1)));
+				}
+			}
+		}
+
+		function popSuperelevation2Folder(superelevation, folder) {
+
+			var superelevationUI = {
+				s: superelevation.s,
+				a: superelevation.a,
+				b: superelevation.b,
+				c: superelevation.c,
+				d: superelevation.d,
+			}
+			folder.add(superelevationUI, 's').__input.disabled = true;
+			folder.add(superelevationUI, 'a').onChange(function(value) {superelevation.a = value; refreshRoad(road);});
+			folder.add(superelevationUI, 'b').onChange(function(value) {superelevation.b = value; refreshRoad(road);});
+			folder.add(superelevationUI, 'c').onChange(function(value) {superelevation.c = value; refreshRoad(road);});
+			folder.add(superelevationUI, 'd').onChange(function(value) {superelevation.d = value; refreshRoad(road);});
+		}
+
+		function fillSuperelevationFolder(superelevationFolder) {
+			if (road.superelevation.length == 1) {
+				popSuperelevation2Folder(road.superelevation[0], superelevationFolder);
+			} else {
+				for (var i = 0; i < road.superelevation.length; i++) {
+					popSuperelevation2Folder(road.superelevation[i], superelevationFolder.addFolder('Superelevation ' + (i + 1)));
+				}
+			}
+		}
+
+		function popCrossfall2Folder(crossfall, folder) {
+
+			var crossfallUI = {
+				side: crossfall.side,
+				s: crossfall.s,
+				a: crossfall.a,
+				b: crossfall.b,
+				c: crossfall.c,
+				d: crossfall.d,
+			}
+			folder.add(crossfallUI, 'side').onChange(function(value) {crossfall.side = value; refreshRoad(road);});
+			folder.add(crossfallUI, 's').__input.disabled = true;
+			folder.add(crossfallUI, 'a').onChange(function(value) {crossfall.a = value; refreshRoad(road);});
+			folder.add(crossfallUI, 'b').onChange(function(value) {crossfall.b = value; refreshRoad(road);});
+			folder.add(crossfallUI, 'c').onChange(function(value) {crossfall.c = value; refreshRoad(road);});
+			folder.add(crossfallUI, 'd').onChange(function(value) {crossfall.d = value; refreshRoad(road);});
+		}
+
+		function fillCrossfallFolder(crossfallFolder) {
+			if (road.crossfall.length == 1) {
+				popCrossfall2Folder(road.crossfall[0], crossfallFolder);
+			} else {
+				for (var i = 0; i < road.crossfall.length; i++) {
+					popCrossfall2Folder(road.crossfall[i], crossfallFolder.addFolder('Crossfall ' + (i + 1)));
+				}
+			}
+		}
+
+		function popLaneSectoin2Folder(laneSection, folder) {
+
+			var laneSectionUI = {
+				s: laneSection.s,
+			}
+
+			folder.add(laneSectionUI, 's').__input.disabled = true;
+
+			laneSection.lane.sort(function(laneA, laneB) { if (laneA.id > laneB.id) return - 1; if (laneA.id < laneB.id) return 1; if (laneA.id == laneB.id) return 0} );
+			for (var i = 0; i < laneSection.lane.length; i++) {
+
+				var lane = laneSection.lane[i];
+				var laneFolder = folder.addFolder('Lane ' + lane.id);
+
+				var laneUI = {
+					type: lane.type,
+					level: (lane.level == '0' || lane.level == 'false') ? 'Apply superelevation if any' : 'Keep within road level',
+					predecessor: lane.predecessor,
+					successor: lane.successor,
+				}
+				
+				function popWidth2Folder(width, folder) {
+
+					var widthUI = {
+						sOffset: width.sOffset,
+						a: width.a,
+						b: width.b,
+						c: width.c,
+						d: width.d,
+					}
+
+					folder.add(widthUI, 'sOffset').onChange(function(value) {width.sOffset = value; refreshRoad(road)});
+					folder.add(widthUI, 'a').onChange(function(value) {width.a = value; refreshRoad(road)});
+					folder.add(widthUI, 'b').onChange(function(value) {width.b = value; refreshRoad(road)});
+					folder.add(widthUI, 'c').onChange(function(value) {width.c = value; refreshRoad(road)});
+					folder.add(widthUI, 'd').onChange(function(value) {width.d = value; refreshRoad(road)});
+				}
+				function fillWidthFolder() {
+					if (lane.width.length == 1) {
+						popWidth2Folder(lane.width[0], widthFolder);
+					} else {
+						for (var i = 0; i < lane.width.length; i++) {
+							popWidth2Folder(lane.width[i], widthFolder.addFolder('Width ' + (i + 1)));
+						}
+					}
+				}
+
+				function popRoadMark2Folder(roadMark, folder) {
+
+					var roadMarkUI = {
+						sOffset: roadMark.sOffset,
+						type: roadMark.type,
+						weight: roadMark.weight,
+						color: roadMark.color,
+						width: roadMark.width,
+						material: roadMark.material,
+						laneChange: roadMark.laneChange,
+						height: roadMark.height,
+					}
+
+					folder.add(roadMarkUI, 'sOffset').onChange(function(value) {roadMark.sOffset = value; refreshRoad(road)});
+					folder.add(roadMarkUI, 'type').onChange(function(value) {roadMark.type = value; refreshRoad(road)});
+					folder.add(roadMarkUI, 'weight').onChange(function(value) {roadMark.weight = value; refreshRoad(road)});
+					folder.add(roadMarkUI, 'color').onChange(function(value) {roadMark.color = value; refreshRoad(road)});
+					folder.add(roadMarkUI, 'width').onChange(function(value) {roadMark.width = value; refreshRoad(road)});
+					if (roadMark.material) folder.add(roadMarkUI, 'material').onChange(function(value) {roadMark.material = value; refreshRoad(road)});
+					if (roadMark.laneChange) folder.add(roadMarkUI, 'laneChange').onChange(function(value) {roadMark.laneChange = value; refreshRoad(road)});
+					if (roadMark.height) folder.add(roadMarkUI, 'height').onChange(function(value) {roadMark.height = value; refreshRoad(road)});
+				}
+				function fillRoadMarkFolder() {
+					if (lane.roadMark.length == 1) {
+						popRoadMark2Folder(lane.roadMark[0], roadMarkFolder);
+					} else {
+						for (var i = 0; i < lane.roadMark.length; i++) {
+							popRoadMark2Folder(lane.roadMark[i], roadMarkFolder.addFolder('Mark ' + (i + 1)));
+						}
+					}
+				}
+
+				function popLaneHeight2Folder(laneHeight, folder) {
+
+					var laneHeightUI = {
+						sOffset: laneHeight.sOffset,
+						inner: laneHeight.inner,
+						outer: laneHeight.outer,
+					}
+
+					folder.add(laneHeightUI, 'sOffset').onChange(function(value) {laneHeight.sOffset = value; refreshRoad(road)});
+					folder.add(laneHeightUI, 'inner').onChange(function(value) {laneHeight.inner = value; refreshRoad(road)});
+					folder.add(laneHeightUI, 'outer').onChange(function(value) {laneHeight.outer = value; refreshRoad(road)});
+				}
+				function fillLaneHeightFolder() {
+					if (lane.height.length == 1) {
+						popLaneHeight2Folder(lane.height[0], laneHeightFolder);
+					} else {
+						for (var i = 0; i < lane.height.length; i++) {
+							popLaneHeight2Folder(lane.height[i], laneHeightFolder.addFolder('Height ' + (i + 1)));
+						}
+					}
+				}
+
+				function popMaterial2Folder(material, folder) {
+
+					var materialUI = {
+						sOffset: material.sOffset,
+						surface: material.surface,
+						friction: material.friction,
+						roughness: material.roughness,
+					}
+
+					folder.add(materialUI, 'sOffset').onChange(function(value) {material.sOffset = value; refreshRoad(road)});
+					folder.add(materialUI, 'surface').onChange(function(value) {material.surface = value; refreshRoad(road)});
+					folder.add(materialUI, 'friction').onChange(function(value) {material.friction = value; refreshRoad(road)});
+					folder.add(materialUI, 'roughness').onChange(function(value) {material.roughness = value; refreshRoad(road)});
+				}
+				function fillMaterialFolder() {
+
+					if (lane.material.length == 1) {
+						popMaterial2Folder(lane.material[0], materialFolder);
+					} else {
+						for (var i = 0; i < lane.material.length; i++) {
+							popMaterial2Folder(lane.material[i], materialFolder.addFolder('Material ' + (i + 1)));
+						}
+					}
+				}
+
+				function popVisiblity2Folder(visibility, folder) {
+
+					var visibilityUI = {
+						sOffset: visibility.sOffset,
+						forward: visibility.forward,
+						back: visibility.back,
+						left: visibility.left,
+						right: visibility.right,
+					}
+
+					folder.add(visibilityUI, 'sOffset').onChange(function(value) {visibility.sOffset = value; refreshRoad(road)});
+					folder.add(visibilityUI, 'forward').onChange(function(value) {visibility.forward = value; refreshRoad(road)});
+					folder.add(visibilityUI, 'back').onChange(function(value) {visibility.back = value; refreshRoad(road)});
+					folder.add(visibilityUI, 'left').onChange(function(value) {visibility.left = value; refreshRoad(road)});
+					folder.add(visibilityUI, 'right').onChange(function(value) {visibility.right = value; refreshRoad(road)});
+				}
+				function fillVisibilityFolder() {
+
+					if (lane.visibility.length == 1) {
+						popMaterial2Folder(lane.visibility[0], visibilityFolder);
+					} else {
+						for (var i = 0; i < lane.visibility.length; i++) {
+							popMaterial2Folder(lane.visibility[i], visibilityFolder.addFolder('Visibility ' + (i + 1)));
+						}
+					}
+				}
+
+				function popSpeed2Folder(speed, folder) {
+
+					var speedUI = {
+						sOffset: speed.sOffset,
+						max: speed.max,
+						unit: speed.unit,
+					}
+
+					folder.add(speedUI, 'sOffset').onChange(function(value) {speed.sOffset = value; refreshRoad(road)});
+					folder.add(speedUI, 'max').onChange(function(value) {speed.max = value; refreshRoad(road)});
+					folder.add(speedUI, 'unit').onChange(function(value) {speed.unit = value; refreshRoad(road)});
+				}
+				function fillSpeedFolder() {
+
+					if (lane.speed.length == 1) {
+						popMaterial2Folder(lane.speed[0], speeFolder);
+					} else {
+						for (var i = 0; i < lane.speed.length; i++) {
+							popMaterial2Folder(lane.speed[i], speeFolder.addFolder('Speed ' + (i + 1)));
+						}
+					}
+				}
+
+				function popAccess2Folder(access, folder) {
+
+					var accessUI = {
+						sOffset: access.sOffset,
+						restriction: access.restriction,
+					}
+
+					folder.add(accessUI, 'sOffset').onChange(function(value) {access.sOffset = value; refreshRoad(road)});
+					folder.add(accessUI, 'restriction').onChange(function(value) {access.restriction = value; refreshRoad(road)});
+				}
+				function fillAccessFolder() {
+
+					if (lane.access.length == 1) {
+						popMaterial2Folder(lane.access[0], accessFolder);
+					} else {
+						for (var i = 0; i < lane.access.length; i++) {
+							popMaterial2Folder(lane.access[i], accessFolder.addFolder('Access ' + (i + 1)));
+						}
+					}
+				}
+
+				function popRule2Folder(rule, folder) {
+
+					var ruleUI = {
+						sOffset: rule.sOffset,
+						value: rule.value,
+					}
+
+					folder.add(ruleUI, 'sOffset').onChange(function(value) {rule.sOffset = value; refreshRoad(road)});
+					folder.add(ruleUI, 'value').onChange(function(value) {rule.value = value; refreshRoad(road)});
+				}
+				function fillRuleFolder() {
+					if (lane.rule.length == 1) {
+						popRule2Folder(lane.rule[0], ruleFolder);
+					} else {
+						for (var i = 0; i < lane.rule.length; i++) {
+							popRule2Folder(lane.rule[i], ruleFolder.addFolder('Rule ' + (i + 1)));
+						}
+					}
+				}
+
+				laneFolder.add(laneUI, 'type').onChange(function(value) {lane.type = value; refreshRoad(road)});
+				laneFolder.add(laneUI, 'level', ['Apply superelevation if any', 'Keep within road level']).onChange(function(value) {if (value == 'Keep within road level') lane.level = 'true'; else lane.level = 'false'; refreshRoad(road)});
+				if (lane.predecessor) {
+					var predecessor = laneFolder.add(laneUI, 'predecessor');
+					predecessor.__input.disabled = true;
+				}
+				if (lane.successor) {
+					var successor = laneFolder.add(laneUI, 'successor');
+					successor.__input.disabled = true;
+				}
+
+				if (lane.width) {
+					var widthFolder = laneFolder.addFolder('Width');
+					fillWidthFolder();
+				}
+
+				if (lane.roadMark) {
+					var roadMarkFolder = laneFolder.addFolder('Roadmark');
+					fillRoadMarkFolder();
+				}
+
+				if (lane.height) {
+					var laneHeightFolder = laneFolder.addFolder('Height');
+					fillLaneHeightFolder();
+				}
+
+				if (lane.material) {
+					var materialFolder = laneFolder.addFolder('Material');
+					fillMaterialFolder();
+				}
+
+				if (lane.visibility) {
+					var visibilityFolder = laneFolder.addFolder('Visibility');
+					fillVisibilityFolder();
+				}
+
+				if (lane.speed) {
+					var speeFolder = laneFolder.addFolder('Speed');
+					fillSpeedFolder();
+				}
+
+				if (lane.access) {
+					var accessFolder = laneFolder.addFolder('Access');
+					fillAccessFolder();
+				}
+
+				if (lane.rule) {
+					var ruleFolder = laneFolder.addFolder('Rule');
+					fillRuleFolder();
+				}
+
+			}
+		}
+
+		function fillLaneSectionFolder(laneSectionFolder) {
+
+			if (road.laneSection.length == 1) {
+				popLaneSectoin2Folder(road.laneSection[0], laneSectionFolder);
+			} else {
+				for (var i = 0; i < road.laneSection.length; i++) {
+					popLaneSectoin2Folder(road.laneSection[i], laneSectionFolder.addFolder('Section ' + (i + 1)));
+				}
+			}
+		}
+
+		function popSignal2Folder(signal, folder) {
+
+			var signalUI = {
+				name: signal.name,
+				s: signal.s,
+				t: signal.t,
+				dynamic: signal.dynamic,
+				orientation: signal.orientation,
+				type: signal.type,
+			}
+
+			folder.add(signalUI, 'name').onChange( function(value) { signal.name = value; } );
+			folder.add(signalUI, 's', 0, road.length).onChange( function(value) {signal.s = value; refreshSignal(); } );
+			folder.add(signalUI, 't').onChange( function(value) { signal.t = value; refreshSignal(); } );
+			folder.add(signalUI, 'dynamic').onChange( function(value) { signal.dynamic = value; refreshSignal(); } );
+			folder.add(signalUI, 'orientation', ['+', '-']).onChange( function(value) {signal.orientation = value; refreshSignal(); } );
+			folder.add(signalUI, 'type'). onChange( function(value) {} );
+		}
+
+		function fillSignalFolder(signalFolder) {
+			road.signal.sort();
+			for (var i = 0; i < road.signal.length; i++) {
+				if (!(road.signal[i] in dirtyMap.signals)) {
+					dirtyMap.signals[road.signal[i]] = JSON.parse(JSON.stringify(map.signals[road.signal[i]]));
+				}
+				var signal = dirtyMap.signals[road.signal[i]];
+				try {
+					popSignal2Folder(signal, signalFolder.addFolder('Singal ' + signal.id));
+				} catch(e) {
+					popSignal2Folder(signal, signalFolder.addFolder('Singal ' + signal.id + '(' + i + ')'));
+				}
+			}
+		}
+
+		function refreshSignal(signal) {
+			hide(group.signal);
+			group.signal = [];
+			placeSignalsInDirtyRoad(dirtyMap, road);
+		}
+
+		// root
+		roadDetail = mapEditor.addFolder('Road Detail');
+
+		roadDetail.add(roadUI, 'name');
+		roadDetail.add(roadUI, 'length').__input.disabled = true;
+		if (road.type) roadDetail.add(roadUI, 'type');
+		if (road.junction != '-1') roadDetail.add(roadUI, 'junction').__input.disabled = true;
+
+		// link
+		if(road.predecessor) {
+			predecessorFolder = roadDetail.addFolder('Predecessor');
+			popPredecessor2Folder(road.predecessor, predecessorFolder);
+		}
+		if (road.successor) {
+			successorFolder = roadDetail.addFolder('Successor');
+			popSuccessor2Folder(road.successor, successorFolder);
+		}
+		
+		// planView geometry
+		geometryFolder = roadDetail.addFolder('Plan View');
+		fillGeometryFolder(geometryFolder);
+
+		// elevation
+		if (road.elevation) {
+			elevationFolder = roadDetail.addFolder('Elevation Profile');
+			fillElevationFolder(elevationFolder);
+		}
+
+		// lateral profile
+		if (road.superelevation) {
+			superelevationFolder = roadDetail.addFolder('Superelevation Profile');
+			fillSuperelevationFolder(superelevationFolder);
+		}
+		if (road.crossfall) {
+			crossfallFolder = roadDetail.addFolder('Crossfall Profile');
+			fillCrossfallFolder(crossfallFolder);
+		}
+
+		// lanes
+		laneSectionFolder = roadDetail.addFolder('Lane Section');
+		fillLaneSectionFolder(laneSectionFolder);
+
+		if (road.signal) {
+			signalFolder = roadDetail.addFolder('Signal');
+			fillSignalFolder(signalFolder);
+		}
+
+		roadDetail.open();
+
+		editorReseter = mapEditor.add(editor, 'resetEditions');
+		editorSaver = mapEditor.add(editor, 'saveEditions');
+	}
+
+	function exitEditorMode() {
+		if (roadDetail) {
+			mapEditor.removeFolder('Road Detail');
+			roadDetail = null;
+			mapEditor.remove(editorReseter);
+			mapEditor.remove(editorSaver);
+			editorReseter = null;
+			editorSaver = null;
+		}
+	}
+
+	function resetEditions() {
+		dirtyMap = {roads: {}, signals: {}};
+		refreshRoad(map.roads[editor.selectRoad]);
+		exitEditorMode();
+		enterEditorMode();
+	}
+
+	function saveEditions() {
+		
+		for (var id in dirtyMap.roads) {
+			delete map.roads[id];
+			map.roads[id] = dirtyMap.roads[id]
+		}
+
+		for (var signalId in dirtyMap.signals) {
+			delete map.signals[signalId];
+			map.signals[signalId] = dirtyMap.signals[signalId];
+		}
+
+		dirtyMap = {roads: {}, signals: {}};
+
+		alert('Editions have been saved.');
+	}
+}
+
+/*
+* clear screen to show nothing
+*/
+function clearRoads() {
+	hide(group.road);
+	hide(group.roadMark);
+	hide(group.signal);
+	hide(group.referenceLine);
+	delete group.road;
+	delete group.roadMark
+	delete group.referenceLine;
+	delete group.signal;
+	group = {road: [], roadMark: [], referenceLine: [], signal: []};
+}
+
+/*
+* hide added mesh from scene
+*
+* NOTE: after hiding a groupMesh, should delte its memory, but delete groupMesh won't work in hide function
+*/
+function hide(groupMesh) {
+	
+	groupMesh.forEach(function(mesh) {
+		scene.remove(mesh);
+	} );
+}
+
+/*
 * Show geometry in plan view
 */
 function geometryPlanView(roadId) {
@@ -4281,10 +5079,39 @@ function laneSView(roadId, laneSectionId) {
 	var lanes = laneSection.lane;
 }
 
+/*************************************************************
+**					User Interaction						**
+**************************************************************/
+
+
 
 /*************************************************************
 **				Importing/Exporting Roads					**
 **************************************************************/
+
+function saveFile(data, filename){
+    if(!data) {
+        console.error('No data')
+        return;
+    }
+
+    if(!filename) filename = 'console.json'
+
+    if(typeof data === "object"){
+        data = JSON.stringify(data, undefined, 4)
+    }
+
+    var blob = new Blob([data], {type: 'text/json'}),
+        e    = document.createEvent('MouseEvents'),
+        a    = document.createElement('a')
+
+    a.download = filename
+    a.href = window.URL.createObjectURL(blob)
+    a.dataset.downloadurl =  ['text/json', a.download, a.href].join(':')
+    e.initMouseEvent('click', true, false, window, 0, 0, 0, 0, 0, false, false, false, false, 0, null)
+    a.dispatchEvent(e)
+}
+
 function loadOBJ(objFile) {
 
 	var loader = new THREE.OBJLoader();
@@ -4295,6 +5122,58 @@ function loadOBJ(objFile) {
 	});
 }
 
+function exportOBJ(meshArray, filename) {
+	
+	var object = {children:meshArray};
+
+	object.traverse = scene.traverse;
+
+	var exporter = new THREE.OBJExporter();
+	var obj = exporter.parse(object);
+
+	saveFile(obj, filename);
+}
+
+/*************************************************************
+**			Additional functions added to lib				**
+**************************************************************/
+THREE.Mesh.prototype.dispose = function() {
+	this.geometry.dispose();
+	this.geometry = null;
+	this.material.dispose();
+	this.material = null;
+	delete this;
+}
+
+THREE.Group.prototype.dispose = function() {
+	this.children.forEach(function(child) {
+		child.dispose();
+	});
+	delete this;
+}
+
+dat.GUI.prototype.removeFolder = function(name) {
+	var folder = this.__folders[name];
+	if (!folder) {
+		return;
+	}
+	folder.close();
+	this.__ul.removeChild(folder.domElement.parentNode);
+	delete this.__folders[name];
+	this.onResize();
+}
+
+function onWindowResize() {
+	camera.aspect = window.innerWidth / window.innerHeight;
+	camera.updateProjectionMatrix();
+	renderer.setSize( window.innerWidth, window.innerHeight );
+}
+
+function onDocumentMouseMove( event ) {
+	event.preventDefault();
+	mouse.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+	mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
+}
 
 function test() {
 	var roadIds = getConnectingRoadIds('500');
@@ -4341,6 +5220,23 @@ function test() {
 
 	//loadOBJ('../data/trumpet.obj');
 
+	var boxGeometry = new THREE.BoxGeometry(10, 10, 10);
+	var box = new THREE.Mesh(boxGeometry);
+	box.position.set(0, 0, 5);
+	//scene.add(box)
+
+	var sphereGeometry = new THREE.SphereGeometry(5, 32, 32);
+	var sphere = new THREE.Mesh(sphereGeometry);
+	sphere.position.set(0, 0, 15)
+	//scene.add(sphere)
+
+	var mergedGeometry = new THREE.Geometry();
+	box.updateMatrix();
+	mergedGeometry.merge(box.geometry, box.matrix);
+	sphere.updateMatrix();
+	mergedGeometry.merge(sphere.geometry, sphere.matrix);
+	//scene.add(new THREE.Mesh(mergedGeometry));
+
 	//paveRoads(map.roads)
 	//paveRoads(map.roads, true)
 	//paveRoadsByIds(['5'], true)
@@ -4356,6 +5252,9 @@ function test() {
 	//drawRoadByLaneSections('5', [0, 1, 2, 3], true)
 	//drawRoadByLaneSectionGeometries('5', 3, [0, 1], true)
 
-	geometryPlanView('509')
+	//geometryPlanView('509')
 
+	//var meshArray = group.road.concat(group.roadMark).concat(group.signal);
+	//exportOBJ(meshArray, 'map.obj');
+	//loadOBJ('../data/map.obj');
 }

@@ -6,6 +6,7 @@ var Map = function (scene, file) {
 	this.scene = scene;
 	this.roads = {};
 	this.mesh = {road: {}, signal: {}};
+	this.group = {road: new THREE.Group(), referenceLine: new THREE.Group(), signal: new THREE.Group()};
 
 	if (file) {
 		this.generateFrom(file);
@@ -17,6 +18,8 @@ var Map = function (scene, file) {
 		throw Error('Map construct error: invalid openDrive data');
 	}
 }
+
+Map.prototype.constructor = Map;
 
 /*
 * @Parameter xmlFile
@@ -253,7 +256,7 @@ Map.prototype.parseFromXML = function(xmlFile) {
 
 				// 0+
 				var roadMarkNodes = laneNode.getElementsByTagName('roadMark');
-				roads[id].laneSection[j].lane[k].roadMark = [];		
+				if (roadMarkNodes.length) roads[id].laneSection[j].lane[k].roadMark = [];		
 
 				// 0+ not allowed for center lane
 				var materialNodes = laneNode.getElementsByTagName('material');
@@ -729,7 +732,7 @@ Map.prototype.getRoad = function(roadId) {
 	return road;
 }
 
-// laneSectionId can be omitted
+// laneSectionId can be omitted - should not be called publicly
 Map.prototype.paveRoadById = function(roadId, laneSectionId) {
 	
 	if (!this.hasRoad(roadId)) {
@@ -741,7 +744,7 @@ Map.prototype.paveRoadById = function(roadId, laneSectionId) {
 	if (!laneSectionId) {
 		for (var laneSectionId = 0; laneSectionId < this.mesh.road[roadId].length; laneSectionId++) {
 			for (var i =0; i < this.mesh.road[roadId][laneSectionId].pavement.length; i++) {
-				this.scene.add(this.mesh.road[roadId][laneSectionId].pavement[i]);
+				this.group.road.add(this.mesh.road[roadId][laneSectionId].pavement[i]);
 			}
 		}
 	} else {
@@ -749,7 +752,7 @@ Map.prototype.paveRoadById = function(roadId, laneSectionId) {
 			throw Error('paveRoadById error: invalid laneSectionId#', laneSectionId);
 		} else {
 			for (var i = 0; i < this.mesh.road[roadId][laneSectionId].pavement.length; i++) {
-				this.scene.add(this.mesh.road[roadId][laneSectionId].pavement[i]);
+				this.group.road.add(this.mesh.road[roadId][laneSectionId].pavement[i]);
 			}
 		}
 	}
@@ -760,6 +763,8 @@ Map.prototype.paveAllRoads = function() {
 	for (var id in this.roads) {
 		this.paveRoadById(id)
 	}
+
+	this.scene.add(this.group.road);
 }
 
 Map.prototype.paveRoadsByIds = function(roadIds) {
@@ -774,9 +779,18 @@ Map.prototype.paveRoadsByIds = function(roadIds) {
 
 		this.paveRoadById(id);
 	}
+
+	this.scene.add(this.group.road);
 }
 
-// laneSectionId can be omitted
+Map.prototype.removeAllRoads = function() {
+
+	if (!!this.group.road) {
+		this.scene.remove(this.group.road);
+	}
+}
+
+// laneSectionId can be omitted - should not be called publicly
 Map.prototype.showReferenceLineById = function(roadId, laneSectionId) {
 	
 	if (!this.hasRoad(roadId)) {
@@ -787,7 +801,7 @@ Map.prototype.showReferenceLineById = function(roadId, laneSectionId) {
 	if (!laneSectionId) {
 		for (var laneSectionId = 0; laneSectionId < this.mesh.road[roadId].length; laneSectionId++) {
 			for (var i =0; i < this.mesh.road[roadId][laneSectionId].referenceLine.length; i++) {
-				this.scene.add(this.mesh.road[roadId][laneSectionId].referenceLine[i]);
+				this.group.referenceLine.add(this.mesh.road[roadId][laneSectionId].referenceLine[i]);
 			}
 		}
 	} else {
@@ -795,7 +809,7 @@ Map.prototype.showReferenceLineById = function(roadId, laneSectionId) {
 			throw Error('paveRoadById error: invalid laneSectionId#', laneSectionId);
 		} else {
 			for (var i = 0; i < this.mesh.road[roadId][laneSectionId].referenceLine.length; i++) {
-				this.scene.add(this.mesh.road[roadId][laneSectionId].referenceLine[i]);
+				this.group.referenceLine.add(this.mesh.road[roadId][laneSectionId].referenceLine[i]);
 			}
 		}
 	}
@@ -820,15 +834,25 @@ Map.prototype.showReferenceLine = function(roadIds) {
 			this.showReferenceLineById(id);
 		}
 	}
+
+	this.scene.add(this.group.referenceLine);
 }
 
+Map.prototype.hideReferenceLine = function() {
+	
+	if (!!this.group.referenceLine) {
+		this.scene.remove(this.group.referenceLine);
+	}
+}
+
+// should not be called publicly
 Map.prototype.showSignalById = function(signalId) {
 
 	if (!this.signals[signalId]) {
 		throw Error('Map.showSignalById error: invalid signalId#', signalId, 'does not exist in Map');
 	}
 
-	this.scene.add(this.mesh.signal[signalId]);
+	this.group.signal.add(this.mesh.signal[signalId]);
 }
 
 // roadIds can be ommited
@@ -861,6 +885,23 @@ Map.prototype.showSignals = function(roadIds) {
 			this.showSignalById(signalId);
 		}
 	}
+
+	this.scene.add(this.group.signal);
+}
+
+Map.prototype.hideSignals = function() {
+
+	if (!!this.group.signal) {
+		this.scene.remove(this.group.signal);
+	}
+}
+
+Map.prototype.destroy = function() {
+
+	for (var p in this) {
+		delete this[p];
+	}
+	delete this.__proto__;
 }
 
 Map.prototype.saveAsMap = function(filename) {
@@ -2305,6 +2346,8 @@ function drawSphereAtPoint(point, color) {
 
 function drawRoadMark(laneSectionStart, laneId, oBorder, elevationLateralProfile, outerHeights, roadMarks, mesh) {
 
+	if (!roadMarks) return;
+	
 	if (roadMarks.length == 0) return;
 
 	// road mark color info
@@ -3761,7 +3804,7 @@ function init() {
 	/** Setting up controls */
 	controls = new THREE.OrbitControls(camera, renderer.domElement);
 
-	test();
+	main();
 }
 
 function animate() {
@@ -3769,17 +3812,33 @@ function animate() {
 	renderer.render(scene, camera);
 }
 
-function test() {
-	var map;
-	//map = new Map(scene, "../data/Crossing8Course.xodr");
-	//map = new Map(scene, "../data/CrossingComplex8Course.xodr");
-	//map = new Map(scene, "../data/Roundabout8Course.xodr");
-	//map = new Map(scene, "../data/CulDeSac.xodr");
-	map = new Map(scene, "../data/Country.xodr");	// multiple width on Arc
-	//map = new Map(scene, "../data/test.xodr");
-	//map = new Map(scene, "../data/Country.json");
+function main() {
+
+	var map = new Map(scene, "../data/Crossing8Course.xodr");
+
+	var maps = {
+		Crossing8Course: 'Crossing8Course.xodr',
+		CrossingComplex8Course: 'CrossingComplex8Course.xodr',
+		Roundabout8Course: 'Roundabout8Course.xodr',
+		Country: 'Country.xodr',
+	}
+
+	var params = {
+		mapName: 'Crossing8Course',
+		referenceLine: false,
+		signal: false,
+		saveAsJSON: ( function() { map.saveAsMap(params.mapName + '.json') } ),
+	};
+
+	var gui = new dat.GUI({width: 300});
+
+	var mapViewer = gui.addFolder('Map Viewer');
+	mapViewer.add(params, 'mapName', Object.keys(maps)).onFinishChange( function(value) { map.removeAllRoads(); map.hideSignals(); map.hideReferenceLine(); map.destroy(); map = new Map(scene, '../data/' + maps[params.mapName]); map.paveAllRoads(); } );
+	mapViewer.add(params, 'referenceLine').onFinishChange( function(value) { if (value == true) map.showReferenceLine(); if (value == false) map.hideReferenceLine() } );
+	mapViewer.add(params, 'signal').onFinishChange( function(value) {if (value == true) map.showSignals(); if (value == false) map.hideSignals() } )
+	mapViewer.add(params, 'saveAsJSON');
+	mapViewer.open();
 
 	map.paveAllRoads()
-	//map.showReferenceLine();
-	map.showSignals();
+
 }
