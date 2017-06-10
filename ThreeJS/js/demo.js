@@ -46,7 +46,7 @@ function init() {
 	helper.material.transparent = true;
 	scene.add(helper);
 
-	/** Settign up rendere */
+	/** Settign up renderer */
 	renderer = new THREE.WebGLRenderer( {antialias: true} );
 	renderer.setClearColor(0xf0f0f0);
 	renderer.setPixelRatio(window.devicePixelRatio);
@@ -4365,7 +4365,7 @@ function initGUI() {
 	mapExporter.add(exporter, 'saveAsOBJ');
 
 	mapViewer = gui.addFolder('Map Viewer');
-	mapViewer.add(viewer, 'mapName', Object.keys(maps)).onChange( function(value) { resetViewer(); clearRoads(); rebuildMap(); paveRoads(map.roads, true); gui.removeFolder('Map Editor'); initEditor(); } );
+	mapViewer.add(viewer, 'mapName', Object.keys(maps)).onChange( function(value) { resetViewer(); clearRoads(); rebuildMap(); paveRoads(map.roads, true); closeEditor(); initEditor(); } );
 	resetViewer();
 	mapViewer.open();
 
@@ -4419,6 +4419,11 @@ function initGUI() {
 			}
 		});
 		mapEditor.open();
+	}
+
+	function closeEditor() {
+		exitEditorMode();
+		gui.removeFolder('Map Editor');
 	}
 
 	function enterEditorMode() {
@@ -4971,7 +4976,7 @@ function initGUI() {
 
 	function exitEditorMode() {
 		if (roadDetail) {
-			mapEditor.removeFolder('Road Detail');
+			mapEditor.removeFolder(roadDetail);
 			roadDetail = null;
 			mapEditor.remove(editorReseter);
 			mapEditor.remove(editorSaver);
