@@ -2,17 +2,21 @@ var scene, camera, renderer;
 var raycaster, mouse;
 var container, stats;
 var step = 1; // generate point in step 1m for spiral curve, later apply to arc generation
+var heightClearance = 10; // bounding box for road mesh's additional height
+var maxTOffset = 10;	// maximum offset distance from central geometry
 
 var group = {road: [], roadMark: [], referenceLine: [], signal: []};	// remember added mesh for GUI to hide mesh
+var roadsMesh = {};	// store mesh of road only by road Id, use for generating bb and exporting to .obj by road
 
-var map;
-//var map = parseXML("../data/Crossing8Course.xodr");
+//var map;
+var map = parseXML("../data/Crossing8Course.xodr");
 //var map = parseXML("../data/CrossingComplex8Course.xodr");	// lane lateral shift cause incontinious
 //var map = parseXML("../data/Roundabout8Course.xodr");			// error - taken as a rare case when spiral ends a geometry
 //var map = parseXML("../data/CulDeSac.xodr");
 //var map = parseXML("../data/Country.xodr");					// dead loop due to extremly short E-14 laneSection length, when generating cubic points using for loop
 //var map = parseXML("../data/test.xodr");
 
+preProcessAll(map.roads);
 init();
 animate();
 
@@ -25,7 +29,7 @@ function init() {
 
 	/** Setting up camera */
 	camera = new THREE.PerspectiveCamera(100, window.innerWidth / window.innerHeight, 0.05, 10000);
-	camera.position.set(0, 0, 200);
+	camera.position.set(0, 0, 20);
 	scene.add(camera);
 
 	/** Setting up light */
@@ -80,7 +84,7 @@ function render() {
 	
 	if (raycaster) {
 		raycaster.setFromCamera(mouse, camera);
-		var intersects = raycaster.intersectObject(scene.children);
+		var intersects = raycaster.intersectObject();
 		for ( var i = 0; i < intersects.length; i++ ) {
 			intersects[ i ].object.material.color.set( 0xFF0000 );
 		}
@@ -967,6 +971,13 @@ function preProcess(road) {
 	}
 }
 
+function preProcessAll(roads) {
+
+	for (var id in roads) {
+		preProcess(roads[id]);
+	}
+}
+
 function createLine(length, elevationLateralProfile, hOffset, sx, sy, hdg) {
 
 	var material = new THREE.MeshBasicMaterial({color: 0xFF0000});
@@ -1483,7 +1494,7 @@ function generateClothoidPoints(length, sx, sy, hdg, curvStart, curvEnd, tOffset
 		point.x *= scalar;
 		point.y *= scalar;
 
-		// add offset along normal direction (prependicular to tangent)
+		// add offset along normal direction (perpendicular to tangent)
 		var curv = s / length * Math.abs(curvEnd - curvStart);
 		var theta = s / 2 * curv;
 		if (Math.sign(curvStart + curvEnd) <0) theta *= -1;
@@ -2670,7 +2681,7 @@ function drawRoadMark(laneSectionStart, laneId, oBorder, elevationLateralProfile
 			mesh = new THREE.Mesh(geometry, colorMaterial[roadMark.color]);
 		}
 		else {
-			mesh = new THREE.Group();
+			mesh = new THREE.Mesh();
 			mesh.add(new THREE.Mesh(lgeometry, colorMaterial[roadMark.color]));
 			mesh.add(new THREE.Mesh(rgeometry, colorMaterial[roadMark.color]));
 		}
@@ -2685,6 +2696,7 @@ function drawRoadMark(laneSectionStart, laneId, oBorder, elevationLateralProfile
 /*
 * Pave a Lane given the reference line geometry of the inner border of the lane
 *
+* @Param sectionMesh the mesh of laneSection which is the parent of the mesh to be generated
 * @Param laneSectionStart the start position (s-coodinate), used for finding which width entry is for the geometry
 * @Param geometry the reference line geometry of the inner border of the lane (geometry.offset is the offset from central reference line)
 * @Param elevationLateralProfile tehe whole road's, who contains the lane, elevationProfile, superElevationProfile and crossfallProfile
@@ -2701,7 +2713,7 @@ function drawRoadMark(laneSectionStart, laneId, oBorder, elevationLateralProfile
 *												  --------- central geometry ---------
 */
 
-function paveLane(laneSectionStart, geometry, elevationLateralProfile, lane) {
+function paveLane(sectionMesh, laneSectionStart, geometry, elevationLateralProfile, lane) {
 
 	if (!geometry || !lane) {
 		console.info('pave: invalid lane. skipped. geometry', !!geometry, 'lane', !!lane)
@@ -3012,8 +3024,8 @@ function paveLane(laneSectionStart, geometry, elevationLateralProfile, lane) {
 		oGeometries.push(oGeometry);
 
 		try {
-			if (lane.type != 'border' && lane.type != 'none') {
-				mesh = new THREE.Group();
+			if (laneBase && lane.type != 'border' && lane.type != 'none') {
+				mesh = new THREE.Mesh();
 				var baseMesh = new THREE.Mesh(laneBase, new THREE.MeshBasicMaterial({color: color[lane.type]? color[lane.type] : color.default, side: THREE.DoubleSide}));
 				mesh.add(baseMesh);
 				
@@ -3029,8 +3041,10 @@ function paveLane(laneSectionStart, geometry, elevationLateralProfile, lane) {
 					mesh.add(frontMesh);
 					mesh.add(backMesh);
 				}
+				if (!baseMesh.geometry.getAttribute('position')) throw Error(lane.id, 'mesh geometry do not contain vertices')
 				scene.add(mesh);
 				group.road.push(mesh);
+				sectionMesh.add(mesh.clone());
 			}
 		} catch(e) {
 			console.error(type, e.stack)
@@ -3551,6 +3565,11 @@ function getGeometry(road, s, es) {
 */
 function paveLaneSection(road, laneSectionId, geometryIds, isElevated) {
 
+	if (!roadsMesh[road.id]) roadsMesh[road.id] = new THREE.Mesh();
+	var roadMesh = roadsMesh[road.id];
+	if (!roadMesh[laneSectionId]) roadMesh[laneSectionId] = new THREE.Mesh();
+	var sectionMesh = roadMesh[laneSectionId];
+
 	// split lanes into three groups: center, left, right, (only left and right) sorted by absoluate value of lane.id in ascending order (-1 -> -n) (1->m)
 	var lanes = road.laneSection[laneSectionId].lane;
 	var centralLane, leftLanes = [], rightLanes = [];
@@ -3624,7 +3643,7 @@ function paveLaneSection(road, laneSectionId, geometryIds, isElevated) {
 				}
 
 				try {
-					var oGeometries = paveLane(start, innerGeometry, elevationLateralProfile, leftLanes[j]);
+					var oGeometries = paveLane(sectionMesh, start, innerGeometry, elevationLateralProfile, leftLanes[j]);
 					if (j != leftLanes.length - 1) {
 						for (var k = oGeometries.length; k > 0; k--) {
 							innerGeometries.push(oGeometries[k - 1]);
@@ -3656,7 +3675,7 @@ function paveLaneSection(road, laneSectionId, geometryIds, isElevated) {
 				}
 
 				try {
-					var oGeometries = paveLane(start, innerGeometry, elevationLateralProfile, rightLanes[j]);
+					var oGeometries = paveLane(sectionMesh, start, innerGeometry, elevationLateralProfile, rightLanes[j]);
 					if (j != rightLanes.length - 1) {
 						for (var k = oGeometries.length; k > 0; k--) {
 							innerGeometries.push(oGeometries[k - 1]);
@@ -3672,12 +3691,14 @@ function paveLaneSection(road, laneSectionId, geometryIds, isElevated) {
 
 		// central lanes - draw on top of right/left lanes to be seen
 		try {
-			paveLane(start, geometry, elevationLateralProfile, centralLane);
+			paveLane(sectionMesh, start, geometry, elevationLateralProfile, centralLane);
 		} catch(e) {
 			console.info('paving error: road#' + road.id + ' laneSection#' + laneSectionId + ' geometry#' + i + ' lane#' + centralLane.id);
 			console.error(e.stack)
 		}
 	}
+
+	roadMesh.add(sectionMesh);
 
 }
 
@@ -3696,8 +3717,6 @@ function paveRoadLaneSectionsByIds(road, laneSectionIds) {
 }
 
 function paveRoad(road, isElevated) {
-
-	preProcess(road);
 
 	for (var i  = 0; i < road.laneSection.length; i++) {
 
@@ -3761,7 +3780,7 @@ function generateDefaultSignMesh() {
 	signTop.updateMatrixWorld();
 	signPole.updateMatrixWorld();
 
-	var sign = new THREE.Group();
+	var sign = new THREE.Mesh();
 	sign.add(signTop);
 	sign.add(signPole);
 
@@ -3812,7 +3831,7 @@ function generateDefaultSignalMesh() {
 	signalBox.updateMatrixWorld();
 	signalPole.updateMatrixWorld();
 	
-	var signal = new THREE.Group();
+	var signal = new THREE.Mesh();
 	signal.add(signalBox);
 	signal.add(redLight);
 	signal.add(yellowLight);
@@ -3976,7 +3995,7 @@ function getElevationAtS(roadId, s) {
 	var road = map.roads[roadId];
 
 	if (s < 0 || s > road.length + 1E-4) {
-		throw Error('getElevationAtS error: invalid s', s, 'road length', road.length);
+		throw Error('getElevationAtS error: invalid s ' + s + ' road length' + road.length);
 	}
 
 	if (!road.elevation || !road.elevation.length) return null;
@@ -4044,7 +4063,7 @@ function getCrossfallAtS(roadId, s) {
 	if (!road.crossfall) return null;
 
 	for (var i = 0; i < road.crossfall.length; i++) {
-		var crossfall = road.corssfall[i];
+		var crossfall = road.crossfall[i];
 		var nextCrossfallS = road.crossfall[i + 1] ? road.crossfall[i + 1].s : road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length;
 
 		if (nextCrossfallS <= s) continue;
@@ -4267,20 +4286,353 @@ function track2Inertial(roadId, s, t, h) {
 }
 
 /*
+* Helper for isWithinGeometry.
+* Given two lines in the same plane, defined separately by two different points each, get their intersect
+*
+* @Param x1, y1, x2, y2 the two points defining the first line
+* @Param x3, y3, x4, y4 the two points defining the second line
+* @Return (x, y, 0) Vector3 the intersect point, null if no intersect
+*/
+function getXYLineIntersect(x1, y1, x2, y2, x3, y3, x4, y4) {
+
+	if ( Math.abs((x1 - x2) * (y3 - y4)) == Math.abs((x3 - x4) * (y1 - y2)) ) {
+		return null;
+	}
+
+	var intersect = new THREE.Vector3();
+	intersect.set(((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) / ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)),
+					((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4))/ ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)),
+					0);
+
+	return intersect;
+}
+
+/*
+* Given a single geometry, in X-Y PLANE, tell if the inertial system xy coordinate is bounded by two perpendicular lines to the headings through both ends of the geometry
+*
+* For the following geometry of type 'line', p2 is within the geometry's range, p1 and p3 is not.
+*
+*	p1	|		  p2 		|	p3
+*		|					|
+*		|___________________|
+*		s 					e
+*		
+* NOTE: is it going right with curves?
+* NOTE: Noticable error on y for line, < 0.1 error for spiral, Noticable error along radius, t closer to center
+*
+* @Param geometry the geometry defining the area range
+* @Param x, y inertial coordinate (x,y) on x-y plane only
+* @Return {in: T/F, s, t} if (x,y) is bounded by the geometry, in as true, s as s coordinate in the road, t as the distance from (x,y) perpendicular to geometry's central reference line; in is false if point is not in this geometry, s, t sets to null
+*/
+function isWithinGeometry(geometry, x, y) {
+
+	var sx, sy, ex, ey;
+	var start, end, point;
+	var se, seUnit, sp, ep;
+	var perpendicularPoint;
+	var isWithin = false, s = null, t = null;
+	sx = geometry.x;
+	sy = geometry.y;
+	sp = new THREE.Vector3(x - sx, y - sy, 0);
+	ex = geometry.ex;
+	ey = geometry.ey;
+	ep = new THREE.Vector3(x - ex, y - ey, 0);
+	se = new THREE.Vector3(ex - sx, ey - sy, 0);
+
+	point = new THREE.Vector3(x, y, 0);
+	start = new THREE.Vector3(sx, sy, 0);
+	end = new THREE.Vector3(ex, ey, 0);
+
+	switch(geometry.type) {
+
+		case 'line':
+			// in case the geometry or its neighbour geometries has lane offset, geometry.ex, ey may not be where the geometry really ends
+			ex = sx + geometry.length * Math.cos(geometry.hdg);
+			ey = sy + geometry.length * Math.sin(geometry.hdg);
+			ep.set(x - ex, y - ey, 0);
+			se.set(ex - sx, ey - sy, 0);
+			end.set(ex, ey, 0);
+			seUnit = se.clone();
+			seUnit.normalize();
+
+			if (se.dot(sp) >= 0 && se.dot(ep) <=0) {
+				perpendicularPoint = seUnit.multiplyScalar(seUnit.dot(sp)).add(start);
+				t = perpendicularPoint.distanceTo(point);
+
+				if (t <= maxTOffset) {
+					isWithin = true;
+					s = perpendicularPoint.distanceTo(start) + geometry.s;
+					if (sp.clone().cross(ep).dot(new THREE.Vector3(0, 0, 1)) < 0) {
+						t *= -1;
+					}
+				} else {
+					t = null;
+				}
+			}
+
+			//drawSphereAtPoint(point, 0.1, 0x000001);
+			//drawSphereAtPoint(start, 0.1, 0xFF0000);
+			//drawSphereAtPoint(end, 0.1, 0x0000FF);
+			//if (perpendicularPoint) drawSphereAtPoint(perpendicularPoint, 0.1, 0x000001);
+			//drawCustomLine([start, end], 0x000001);
+			//drawCustomLine([start, point], 0xFF0000);
+			//drawCustomLine([end, point], 0x0000FF);
+
+			break;
+
+		case 'spiral':
+			var curvStart = geometry.spiral.curvStart;
+			var curvEnd = geometry.spiral.curvEnd;
+			var length = geometry.length;
+			var theta = geometry.hdg;
+			var center = new THREE.Vector3();
+			var arcCenter = new THREE.Vector3();
+			var cs, ce, cp, perpendicularPoint;
+
+			var sx1, sy1, ex1, ey1;
+			var sample = generateSpiralPoints(length, null, null, sx, sy, geometry.hdg, curvStart, curvEnd, ex, ey);
+			var endHeading = sample.heading[sample.heading.length - 1];
+			ex = sample.points[sample.points.length - 1].x;
+			ey = sample.points[sample.points.length - 1].y;
+			end.set(ex, ey, 0);
+
+			sx1 = sx + Math.cos(geometry.hdg + Math.PI / 2);
+			sy1 = sy + Math.sin(geometry.hdg + Math.PI / 2);
+			ex1 = ex + Math.cos(endHeading + Math.PI / 2);
+			ey1 = ey + Math.sin(endHeading + Math.PI / 2);
+
+			center = getXYLineIntersect(sx, sy, sx1, sy1, ex, ey, ex1, ey1);
+
+			//drawSphereAtPoint(point, 0.05, 0x000001);
+			//drawSphereAtPoint(center, 0.08, 0xFF0000);
+			//drawSphereAtPoint(start, 0.08, 0xFF0000);
+			//drawSphereAtPoint(end, 0.08, 0x0000FF);
+			//drawCustomLine([center, start], 0xFF0000);
+			//drawCustomLine([center, end], 0x0000FF);
+			//drawCustomLine([center, point], 0x000001);
+
+			cs = new THREE.Vector3(start.x - center.x, start.y - center.y, 0);
+			ce = new THREE.Vector3(end.x - center.x, end.y - center.y, 0);
+			cp = new THREE.Vector3(x - center.x, y - center.y, 0);
+
+			if (Math.abs( cs.angleTo(cp) + cp.angleTo(ce) - cs.angleTo(ce) ) < 1E-10 && !(cp.length() - cs.length() > maxTOffset && cp.length() - ce.length() > maxTOffset) ) {
+				isWithin = true;
+			}
+
+			if (isWithin) {
+				// go through the spiral generation process, test point for each step's arc
+				var currentS = 0, preS = 0;
+				var curvature, radius;
+				var p = new THREE.Vector3(), prep = new THREE.Vector3();
+				
+				do {
+					if (currentS == 0) {
+						p.set(start.x, start.y, start.z);
+						prep.set(p.x, p.y, p.z);
+						currentS += step;
+						continue;
+					};
+
+					if (currentS > length) currentS = length;
+
+					curvature = curvStart + (currentS + preS) * 0.5 * (curvEnd - curvStart) / length;
+					radius = 1 / Math.abs(curvature);
+					p.setX(prep.x + (currentS - preS) * Math.cos(theta + curvature * (currentS - preS) / 2));
+					p.setY(prep.y + (currentS - preS) * Math.sin(theta + curvature * (currentS - preS) / 2));
+
+					arcCenter.set(prep.x + radius * Math.cos(theta + Math.sign(curvature) * Math.PI / 2),
+								prep.y + radius * Math.sin(theta + Math.sign(curvature) * Math.PI / 2), 0);
+
+					cs = new THREE.Vector3(prep.x - arcCenter.x, prep.y - arcCenter.y, 0);
+					ce = new THREE.Vector3(p.x - arcCenter.x, p.y - arcCenter.y, 0);
+					cp = new THREE.Vector3(x - arcCenter.x, y - arcCenter.y, 0);
+					
+					if (Math.abs(cs.angleTo(cp) + cp.angleTo(ce) - cs.angleTo(ce)) < 1E-10) {
+
+						// when traslating s,t to x,y,z, tOffset is based on the ponit on the line sgments instead of the approximate arc
+						perpendicularPoint = cp.clone().normalize().multiplyScalar(radius).add(arcCenter);
+
+						s = radius * Math.sin( cs.angleTo(cp) ) + preS + geometry.s;
+						t = point.distanceTo(perpendicularPoint);
+
+						sp.set(point.x - prep.x, point.y - prep.y, 0);
+						ep.set(point.x - p.x, point.y - p.y, 0);
+
+						if (sp.cross(ep).dot(new THREE.Vector3(0,0, -1)) > 0) {
+							t *= -1;
+						}
+
+						//drawSphereAtPoint(perpendicularPoint, 0.08, 0x000001);
+						//drawSphereAtPoint(arcCenter, 0.08, 0xFFC125);
+						//drawSphereAtPoint(prep, 0.05, 0xFF0000);
+						//drawSphereAtPoint(p, 0.05, 0x0000FF);
+						//drawCustomLine([arcCenter.clone(), prep.clone()], 0xFF0000);
+						//drawCustomLine([arcCenter.clone(), p.clone()], 0x0000FF);
+						//drawCustomLine([arcCenter.clone(), point], 0x000001);
+						//drawCustomLine([arcCenter.clone(), perpendicularPoint], 0x000001);
+
+						break;
+					}
+
+					//drawSphereAtPoint(arcCenter, 0.08, 0xFFC125);
+					//drawSphereAtPoint(prep, 0.05, 0xFF0000);
+					//drawSphereAtPoint(p, 0.05, 0x0000FF);
+
+					prep.set(p.x, p.y, p.z);
+					preS = currentS;
+					currentS += step;
+					theta += curvature * (currentS - preS);
+
+				} while (currentS < length + step);
+			}
+
+			break;
+
+		case 'arc':
+			var curvature = geometry.arc.curvature;
+			var radius = 1 / Math.abs(curvature);
+			var theta = geometry.length * curvature;
+			var center = new THREE.Vector3(sx + radius * Math.cos(geometry.hdg + Math.sign(curvature) * Math.PI / 2),
+											sy + radius * Math.sin(geometry.hdg + Math.sign(curvature) * Math.PI / 2), 0);
+
+			var rotation = geometry.hdg - Math.sign(curvature) * Math.PI / 2;
+			if (!ex || !ey) {
+				ex = sx - radius * Math.cos(rotation) + radius * Math.cos(rotation + theta);
+				ey = sy - radius * Math.sin(rotation) + radius * Math.sin(rotation + theta);
+			}
+
+			var cp = new THREE.Vector3(x - center.x, y - center.y, 0);
+			var cs = new THREE.Vector3(sx - center.x, sy - center.y, 0);
+			var ce = new THREE.Vector3(ex - center.x, ey - center.y, 0);
+
+			if (cp.length() - cs.length() <= maxTOffset) {
+				perpendicularPoint = cp.clone().normalize().multiplyScalar(radius).add(center);
+
+				sp.set(perpendicularPoint.x - sx, perpendicularPoint.y - sy, 0);
+				ep.set(perpendicularPoint.x - ex, perpendicularPoint.y - ey, 0);
+				end.set(ex, ey, 0);
+
+				// in actual road design, an arc shold not exceeds Math.PI - NO. Think of exit ramps at a high way exit? Anyway, needs separate dealing with perpendicular point when theta in [0, Math.PI], (Math.PI, Math.PI * 2]
+				if (Math.abs(theta) <= Math.PI) {
+					if (se.dot(sp) >= 0 && se.dot(ep) <= 0 ) {
+						if (sp.clone().cross(ep).dot(new THREE.Vector3(0, 0, -1 * Math.sign(curvature))) >= 0) {
+							isWithin = true;
+							s = radius * cs.angleTo(cp) + geometry.s;
+							t = -1 * Math.sign(curvature) * (cp.length() - radius)
+						}
+					}
+				} else {
+					console.warn('geometry arc has swept over Math.PI', geometry.length / radius);
+				}
+			}
+
+			//drawSphereAtPoint(center, 0.08, 0xFF0000);
+			//drawSphereAtPoint(point, 0.05, 0x000001);
+			//drawSphereAtPoint(perpendicularPoint, 0.08, 0x0F0F0F);
+			//drawCustomLine([center, start], 0xFF0000);
+			//drawCustomLine([center, end], 0x0000FF);
+			//drawCustomLine([center, point], 0x000001);
+
+			break;
+	}
+
+	return {in: isWithin, s: s, t: t};
+
+}
+
+/*
 * Given a inertial system coordinate, and roadId, tell if the inertial system coordinate is on the road
 *
 * CHALLENGE: tell if a point is in a custom shape
+*
+* @Param roadId the id of the road to be tested against
+* @Param x,y,z position of the point to be tested
+* @Return {isOn: T/F, s, t, h} isOn as true, (s, t, h) the track coordinate, if point is on or above road
 */
 function isOnRoad(roadId, x, y, z) {
 
+	var isOn = false, s = null, t = null, h = null;
+
+	for (var i = 0; i < map.roads[roadId].geometry.length; i++) {
+		var geometry = map.roads[roadId].geometry[i];
+		var isIn = isWithinGeometry(geometry, x, y);
+		if (isIn.in) {
+
+			s = isIn.s;
+			t = isIn.t;
+			h = 0;
+
+			var elevation = getElevationAtS(roadId, s);
+			var superelevation = getSupserelevationAtS(roadId, s);
+			var crossfall = getCrossfallAtS(roadId, s);
+
+			if (!elevation) elevation = {s: 0, a: 0, b: 0, c: 0, d: 0};
+			if (!superelevation) superelevation = {s: 0, a: 0, b: 0, c: 0, d: 0};
+			if (!crossfall) crossfall = {side: 'both', s: 0, a: 0, b: 0, c: 0, d: 0};
+
+			var zOffset = cubicPolynomial(s - elevation.s, elevation.a, elevation.b, elevation.c, elevation.d);
+			var superelevationAngle = cubicPolynomial(s - superelevation.s, superelevation.a, superelevation.b, superelevation.c, superelevation.d);
+			var crossfallAngle = cubicPolynomial(s - crossfall.s, crossfall.a, crossfall.b, crossfall.c, crossfall.d);
+
+			var roll = superelevationAngle;
+			if (!((t < 0 && crossfall.side == 'left') || (t > 0 && crossfall.side == 'right'))) {
+				roll += crossfallAngle * (- Math.sign(t));
+			}
+
+			t = t / Math.cos(roll);
+			zOffset += t * Math.sin(roll);
+			h = (z - zOffset) / Math.cos(roll);
+
+			if (h >= 0) {
+				isOn = true;
+			}
+
+			// original position
+			drawSphereAtPoint(new THREE.Vector3(x,y,z), 0.2, 0x000001);
+
+			// traslated from s,t position
+			var position = track2Inertial(roadId, s, t, h).position;
+			
+			drawSphereAtPoint(position, 0.2, 0xFF0000);
+
+			console.log('error: x', position.x - x, 'y', position.y - y, 'z', position.z - z);
+			break;
+		}
+	}
+
+	return {on: isOn, s: s, t: t, h: h};
 }
 
 /*
 * Given a inertial system coordinate, calculate the track system coordinate
 *
-* CHALLENGE: find the right roadId
+* CHALLENGE: find the right roadId - use bounding box for roadMesh
 */
 function inertial2Track(x, y, z) {
+
+	var point = new THREE.Vector3(x, y, z);
+	var candidateRoadIds = [];
+	var result = null;
+
+	for (var id in roadsMesh) {
+
+		var roadMesh = roadsMesh[id];
+		var bbox = new THREE.Box3().setFromObject(roadMesh);
+		bbox.max.z += heightClearance;
+		if (bbox.containsPoint(point)) {
+			candidateRoadIds.push(id);
+		}
+	}
+
+	if (candidateRoadIds.length) {
+		result = {};
+	}
+
+	for (var i = 0; i < candidateRoadIds.length; i++) {
+		result[candidateRoadIds[i]] = isOnRoad(candidateRoadIds[i], x, y, z);
+	}
+
+	return result;
 
 }
 
@@ -4347,7 +4699,11 @@ function initGUI() {
 
 	var exporter = {
 		saveAsJSON: ( function() { saveFile(map, viewer.mapName + '.json') } ),
-		saveAsOBJ: (function() { exportOBJ(group.road.concat(group.roadMark).concat(group.signal), viewer.mapName + '.obj') } ),
+		saveAsOBJ: (function() { 
+			exportOBJ(group.road, viewer.mapName + '_road.obj');
+			exportOBJ(group.roadMark, viewer.mapName + '_roadMark.obj');
+			exportOBJ(group.signal, viewer.mapName + '_signal.obj');
+		}),
 	}
 
 	var detail = {
@@ -4378,6 +4734,7 @@ function initGUI() {
 			delete map.junctionGroups;
 		}
 		map = parseXML('../data/' + maps[viewer.mapName]);
+		preProcessAll(map.roads);
 	}
 
 	function resetViewer() {
@@ -4395,8 +4752,11 @@ function initGUI() {
 		clearRoads();
 		paveRoad(road, true);
 		drawRoad(road, true);
-		if (Object.keys(dirtyMap.signals).length) placeSignalsInDirtyRoad(dirtyMap, road);
-		else placeSignalsInDirtyRoad(map, road);
+		if (road.id in dirtyMap.roads) {
+			placeSignalsInDirtyRoad(dirtyMap, road);	
+		} else {
+			placeSignalsInRoads([road.id]);
+		}
 	}
 
 
@@ -4412,10 +4772,10 @@ function initGUI() {
 				paveRoads(map.roads, true);
 			}
 			else {
+				enterEditorMode();
 				if (viewer.referenceLine || viewer.signal) resetViewer();
 				if (value in dirtyMap.roads) refreshRoad(dirtyMap.roads[value]);
 				else refreshRoad(map.roads[value]);
-				enterEditorMode();
 			}
 		});
 		mapEditor.open();
@@ -4437,6 +4797,12 @@ function initGUI() {
 		var predecessorFolder, succesFolder;
 		var elevationFolder, superelevationFolder, crossfallFolder, laneOffsetFolder;
 		var geometryFolder, lanesFolder, laneSectionFolder, signalFolder;
+
+		for (var i in road.signal) {
+			if (!(road.signal[i] in dirtyMap.signals)) {
+				dirtyMap.signals[road.signal[i]] = JSON.parse(JSON.stringify(map.signals[road.signal[i]]));
+			}
+		}
 
 		var roadUI = {
 			name: road.name,
@@ -4940,7 +5306,7 @@ function initGUI() {
 		}
 		
 		// planView geometry
-		geometryFolder = roadDetail.addFolder('Plan View');
+		geometryFolder = roadDetail.addFolder('Alignment');
 		fillGeometryFolder(geometryFolder);
 
 		// elevation
@@ -4976,7 +5342,7 @@ function initGUI() {
 
 	function exitEditorMode() {
 		if (roadDetail) {
-			mapEditor.removeFolder(roadDetail);
+			mapEditor.removeFolder('Road Detail');
 			roadDetail = null;
 			mapEditor.remove(editorReseter);
 			mapEditor.remove(editorSaver);
@@ -5096,7 +5462,7 @@ function laneSView(roadId, laneSectionId) {
 
 function saveFile(data, filename){
     if(!data) {
-        console.error('No data')
+        //console.error('No data')
         return;
     }
 
@@ -5129,6 +5495,8 @@ function loadOBJ(objFile) {
 
 function exportOBJ(meshArray, filename) {
 	
+	if (meshArray.length == 0) return;
+
 	var object = {children:meshArray};
 
 	object.traverse = scene.traverse;
@@ -5147,13 +5515,7 @@ THREE.Mesh.prototype.dispose = function() {
 	this.geometry = null;
 	this.material.dispose();
 	this.material = null;
-	delete this;
-}
-
-THREE.Group.prototype.dispose = function() {
-	this.children.forEach(function(child) {
-		child.dispose();
-	});
+	this.children.forEach(function(child) {child.dispose()});
 	delete this;
 }
 
@@ -5225,27 +5587,24 @@ function test() {
 
 	//loadOBJ('../data/trumpet.obj');
 
-	var boxGeometry = new THREE.BoxGeometry(10, 10, 10);
-	var box = new THREE.Mesh(boxGeometry);
-	box.position.set(0, 0, 5);
-	//scene.add(box)
+	var roadId = '502';
+	var s = Math.random() * map.roads[roadId].length//(map.roads[roadId].geometry[1].s - map.roads[roadId].geometry[0].s) + map.roads[roadId].geometry[0].s;
+	var t = Math.random() * -4;
+	var h = 0;
+	var position = track2Inertial(roadId, s, t, h).position;
+	//drawLineAtPoint(position, 0, 5, 0x000001)
+	console.log('s',s, '\nt',t,'\nh', h, '\nposition', position.x, position.y, position.z);
+	//var inGeometry = isWithinGeometry(map.roads[roadId].geometry[0], position.x, position.y);
+	//console.log(inGeometry);
+	var onRoad = isOnRoad(roadId, position.x, position.y, position.z);
+	console.log(onRoad)
+	console.log('track error: s', onRoad.s - s, 't', onRoad.t - t, 'h', onRoad.h - h);
 
-	var sphereGeometry = new THREE.SphereGeometry(5, 32, 32);
-	var sphere = new THREE.Mesh(sphereGeometry);
-	sphere.position.set(0, 0, 15)
-	//scene.add(sphere)
-
-	var mergedGeometry = new THREE.Geometry();
-	box.updateMatrix();
-	mergedGeometry.merge(box.geometry, box.matrix);
-	sphere.updateMatrix();
-	mergedGeometry.merge(sphere.geometry, sphere.matrix);
-	//scene.add(new THREE.Mesh(mergedGeometry));
 
 	//paveRoads(map.roads)
 	//paveRoads(map.roads, true)
-	//paveRoadsByIds(['5'], true)
-	//paveLaneSection(map.roads['5'], 3, [], true)
+	paveRoadsByIds([roadId], true);
+	//paveLaneSection(map.roads[roadId], 0, [0], true)
 
 	//placeSignals(map.signals);
 	//placeSignalsInRoads(['5']);
@@ -5253,13 +5612,26 @@ function test() {
 
 	//drawRoads(map.roads)
 	//drawRoads(map.roads, true)
-	//drawRoadsByIds(['500'], true)
+	drawRoadsByIds([roadId], true)
 	//drawRoadByLaneSections('5', [0, 1, 2, 3], true)
-	//drawRoadByLaneSectionGeometries('5', 3, [0, 1], true)
+	//drawRoadByLaneSectionGeometries(roadId, 0, [0], true)
 
 	//geometryPlanView('509')
 
+	// -8.318342827395044 -0.6232362266760951 1.6006798769007737 for map Crossing8Course.xdor: 500, 504, 506, 509, 512
+	//var x = Math.random() * 20 - 10;
+	//var y = Math.random() * 20 - 10;
+	//var z = Math.random() * 20 - 10;
+	//console.log(x,y,z)
+	//drawSphereAtPoint(new THREE.Vector3(x,y,z), 0.5, 0x000001)
+	//var trackPosition = inertial2Track(x, y, z);
+	//console.log(trackPosition);
+	//for (var id in trackPosition) {
+	//	var inertial = track2Inertial(id, trackPosition[id].s, trackPosition[id].t, trackPosition[id].h);
+	//	drawSphereAtPoint(inertial.position, 0.05, 0x0000FF);
+	//}
+
 	//var meshArray = group.road.concat(group.roadMark).concat(group.signal);
-	//exportOBJ(meshArray, 'map.obj');
+	//exportOBJ([roadsMesh['500'], roadsMesh['508']], 'map.obj');
 	//loadOBJ('../data/map.obj');
 }

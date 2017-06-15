@@ -24,6 +24,8 @@ THREE.OBJExporter.prototype = {
 
 		var parseMesh = function ( mesh ) {
 
+			if (mesh.children.length != 0) return;
+			
 			var nbVertex = 0;
 			var nbNormals = 0;
 			var nbVertexUvs = 0;
@@ -52,11 +54,6 @@ THREE.OBJExporter.prototype = {
 				// name of the mesh material
 				if ( mesh.material && mesh.material.name ) {
 					output += 'usemtl ' + mesh.material.name + '\n';
-				}
-
-				// color of the mesh material
-				if ( mesh.material && mesh.material.color ) {
-					output += 'meshcolor ' + mesh.material.color.r + ' ' + mesh.material.color.g + ' ' + mesh.material.color.b + '\n';
 				}
 
 				// vertices
