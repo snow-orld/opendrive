@@ -6,7 +6,8 @@ var heightClearance = 10; // bounding box for road mesh's additional height
 var maxTOffset = 10;	// maximum offset distance from central geometry
 
 var group = {road: [], roadMark: [], referenceLine: [], signal: []};	// remember added mesh for GUI to hide mesh
-var roadsMesh = {};	// store mesh of road only by road Id, use for generating bb and exporting to .obj by road
+var roadsMesh = {};		// store mesh of road only by road Id, use for generating bb and exporting to .obj by road
+var targetEngineMatrix = new THREE.Matrix3();	// make sure the targe engine's axis is coherent with openDirve's
 
 //var map;
 var map = parseXML("../data/Crossing8Course.xodr");
@@ -4680,6 +4681,7 @@ function initGUI() {
 		CrossingComplex8Course: 'CrossingComplex8Course.xodr',
 		Roundabout8Course: 'Roundabout8Course.xodr',
 		Country: 'Country.xodr',
+		CulDeSac: 'CulDeSac.xodr',
 		Test: 'test.xodr',
 	}
 
@@ -4700,10 +4702,11 @@ function initGUI() {
 	var exporter = {
 		saveAsJSON: ( function() { saveFile(map, viewer.mapName + '.json') } ),
 		saveAsOBJ: (function() { 
-			exportOBJ(group.road, viewer.mapName + '_road.obj');
-			exportOBJ(group.roadMark, viewer.mapName + '_roadMark.obj');
-			exportOBJ(group.signal, viewer.mapName + '_signal.obj');
+			exportOBJ(group.road, viewer.mapName + '_road_' + exporter.targetEngine + '.obj');
+			exportOBJ(group.roadMark, viewer.mapName + '_roadMark_' + exporter.targetEngine + '.obj');
+			exportOBJ(group.signal, viewer.mapName + '_signal_' + exporter.targetEngine + '.obj');
 		}),
+		targetEngine: 'THREE.js',
 	}
 
 	var detail = {
@@ -4719,6 +4722,21 @@ function initGUI() {
 	mapExporter = gui.addFolder('Map Exporter');
 	mapExporter.add(exporter, 'saveAsJSON');
 	mapExporter.add(exporter, 'saveAsOBJ');
+	mapExporter.add(exporter, 'targetEngine', ['THREE.js', 'Unity', 'UnrealEngine']).onChange( function(value) {
+		if (value == 'Unity') {
+			// In Unity, make sure x points to the east, z points to the north, y ponits up to the sky
+			targetEngineMatrix.set(-1,0,0, 0,0,1, 0,1,0);
+		}
+		if (value == 'UnrealEngine') {
+			// In Unreal, make sure x points to the east, y points to the south, z points up to the sky
+			// wierd, tilted 45, do not know why
+			targetEngineMatrix.set(1,0,0, 0,-1,0, 0,1,0);
+		}
+		if (value == 'THREE.js') {
+			// In THREE.js, x, y, z is the same as those in OpendDrive's inertial system
+			targetEngineMatrix.set(1,0,0, 0,1,0, 0,0,1);
+		}
+	} );
 
 	mapViewer = gui.addFolder('Map Viewer');
 	mapViewer.add(viewer, 'mapName', Object.keys(maps)).onChange( function(value) { resetViewer(); clearRoads(); rebuildMap(); paveRoads(map.roads, true); closeEditor(); initEditor(); } );
@@ -5501,7 +5519,7 @@ function exportOBJ(meshArray, filename) {
 
 	object.traverse = scene.traverse;
 
-	var exporter = new THREE.OBJExporter();
+	var exporter = new THREE.OBJExporter(targetEngineMatrix);
 	var obj = exporter.parse(object);
 
 	saveFile(obj, filename);
@@ -5593,17 +5611,17 @@ function test() {
 	var h = 0;
 	var position = track2Inertial(roadId, s, t, h).position;
 	//drawLineAtPoint(position, 0, 5, 0x000001)
-	console.log('s',s, '\nt',t,'\nh', h, '\nposition', position.x, position.y, position.z);
+	//console.log('s',s, '\nt',t,'\nh', h, '\nposition', position.x, position.y, position.z);
 	//var inGeometry = isWithinGeometry(map.roads[roadId].geometry[0], position.x, position.y);
 	//console.log(inGeometry);
-	var onRoad = isOnRoad(roadId, position.x, position.y, position.z);
-	console.log(onRoad)
-	console.log('track error: s', onRoad.s - s, 't', onRoad.t - t, 'h', onRoad.h - h);
+	//var onRoad = isOnRoad(roadId, position.x, position.y, position.z);
+	//console.log(onRoad)
+	//console.log('track error: s', onRoad.s - s, 't', onRoad.t - t, 'h', onRoad.h - h);
 
 
 	//paveRoads(map.roads)
 	//paveRoads(map.roads, true)
-	paveRoadsByIds([roadId], true);
+	//paveRoadsByIds([roadId], true);
 	//paveLaneSection(map.roads[roadId], 0, [0], true)
 
 	//placeSignals(map.signals);
@@ -5612,7 +5630,7 @@ function test() {
 
 	//drawRoads(map.roads)
 	//drawRoads(map.roads, true)
-	drawRoadsByIds([roadId], true)
+	//drawRoadsByIds([roadId], true)
 	//drawRoadByLaneSections('5', [0, 1, 2, 3], true)
 	//drawRoadByLaneSectionGeometries(roadId, 0, [0], true)
 

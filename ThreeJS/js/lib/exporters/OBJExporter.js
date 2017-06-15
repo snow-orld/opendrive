@@ -2,7 +2,9 @@
  * @author mrdoob / http://mrdoob.com/
  */
 
-THREE.OBJExporter = function () {};
+THREE.OBJExporter = function (engineMatrix3) {
+	this.engineMatrix3 = engineMatrix3;
+};
 
 THREE.OBJExporter.prototype = {
 
@@ -21,6 +23,8 @@ THREE.OBJExporter.prototype = {
 		var uv = new THREE.Vector2();
 
 		var i, j, k, l, m, face = [];
+
+		var self = this;
 
 		var parseMesh = function ( mesh ) {
 
@@ -68,6 +72,7 @@ THREE.OBJExporter.prototype = {
 
 						// transfrom the vertex to world space
 						vertex.applyMatrix4( mesh.matrixWorld );
+						vertex.applyMatrix3( self.engineMatrix3 );
 
 						// transform the vertex to export format
 						output += 'v ' + vertex.x + ' ' + vertex.y + ' ' + vertex.z + '\n';
@@ -106,6 +111,7 @@ THREE.OBJExporter.prototype = {
 
 						// transfrom the normal to world space
 						normal.applyMatrix3( normalMatrixWorld );
+						normal.applyMatrix3( self.engineMatrix3 );
 
 						// transform the normal to export format
 						output += 'vn ' + normal.x + ' ' + normal.y + ' ' + normal.z + '\n';
@@ -197,6 +203,7 @@ THREE.OBJExporter.prototype = {
 
 						// transfrom the vertex to world space
 						vertex.applyMatrix4( line.matrixWorld );
+						vertex.applyMatrix3( self.engineMatrix3 );
 
 						// transform the vertex to export format
 						output += 'v ' + vertex.x + ' ' + vertex.y + ' ' + vertex.z + '\n';
