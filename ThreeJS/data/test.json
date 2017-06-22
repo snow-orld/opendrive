@@ -1,1 +1,150 @@
-[{"blue" : "is ok", "red" : "is my fave color"}]
+{
+    "roads": {
+        "1": {
+            "id": "1",
+            "name": "",
+            "length": 10,
+            "junction": "-1",
+            "geometry": [
+                {
+                    "s": 0,
+                    "hdg": 0,
+                    "type": "line",
+                    "length": 10,
+                    "x": 0,
+                    "y": 0,
+                    "ex": null,
+                    "ey": null,
+                    "centralX": 0,
+                    "centralY": 0,
+                    "centralLength": 10,
+                    "offset": {
+                        "a": 0,
+                        "b": 0,
+                        "c": 0,
+                        "d": 0
+                    }
+                }
+            ],
+            "laneSection": [
+                {
+                    "s": 0,
+                    "singleSide": "0",
+                    "lane": [
+                        {
+                            "id": 2,
+                            "type": "driving",
+                            "level": "0",
+                            "width": [
+                                {
+                                    "sOffset": 0,
+                                    "a": 3.25,
+                                    "b": 0,
+                                    "c": 0,
+                                    "d": 0
+                                }
+                            ]
+                        },
+                        {
+                            "id": 1,
+                            "type": "driving",
+                            "level": "0",
+                            "width": [
+                                {
+                                    "sOffset": 0,
+                                    "a": 3.25,
+                                    "b": 0,
+                                    "c": 0,
+                                    "d": 0
+                                }
+                            ],
+                            "roadMark": [
+                                {
+                                    "sOffset": 0,
+                                    "type": "solid",
+                                    "weight": "standard",
+                                    "color": "standard",
+                                    "material": null,
+                                    "width": 0.13,
+                                    "laneChange": "both",
+                                    "height": 0
+                                }
+                            ]
+                        },
+                        {
+                            "id": 0,
+                            "type": "driving",
+                            "level": "0",
+                            "roadMark": [
+                                {
+                                    "sOffset": 0,
+                                    "type": "broken solid",
+                                    "weight": "standard",
+                                    "color": "yellow",
+                                    "material": null,
+                                    "width": 0.13,
+                                    "laneChange": "both",
+                                    "height": 0
+                                }
+                            ]
+                        },
+                        {
+                            "id": -1,
+                            "type": "driving",
+                            "level": "0",
+                            "successor": -1,
+                            "width": [
+                                {
+                                    "sOffset": 0,
+                                    "a": 3.25,
+                                    "b": 0,
+                                    "c": 0,
+                                    "d": 0
+                                }
+                            ],
+                            "roadMark": [
+                                {
+                                    "sOffset": 0,
+                                    "type": "broken",
+                                    "weight": "standard",
+                                    "color": "standard",
+                                    "material": null,
+                                    "width": 0.13,
+                                    "laneChange": "both",
+                                    "height": 0
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ],
+            "elevation": [
+                {
+                    "s": 0,
+                    "a": 0,
+                    "b": 0,
+                    "c": 0,
+                    "d": 0
+                }
+            ],
+            "superelevation": [
+                {
+                    "s": 0,
+                    "a": 0.1,
+                    "b": 0,
+                    "c": 0,
+                    "d": 0
+                }
+            ],
+            "laneOffset": [
+                {
+                    "s": 0,
+                    "a": 0,
+                    "b": 0,
+                    "c": 0,
+                    "d": 0
+                }
+            ]
+        }
+    }
+}

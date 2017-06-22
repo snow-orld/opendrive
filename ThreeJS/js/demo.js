@@ -70,7 +70,7 @@ function init() {
 	window.addEventListener( 'resize', onWindowResize, false );
 
 	/** Setting up GUI */
-	initGUI();
+	//initGUI();
 
 	if (map) test();
 }
@@ -4208,7 +4208,7 @@ function track2Inertial(roadId, s, t, h) {
 	var superelevation = getSupserelevationAtS(roadId, s);
 	var crossfall = getCrossfallAtS(roadId, s);
 
-	var sOffset, hdg, roll, pitch, centralTOffset;
+	var sOffset, hdg, roll, pitch;
 	var svector, tvector;
 	var x, y, z;
 
@@ -4709,10 +4709,6 @@ function initGUI() {
 		targetEngine: 'THREE.js',
 	}
 
-	var detail = {
-		geometry: 'geometry info',
-	}
-
 	var gui = new dat.GUI({width: 300});
 	//gui.closed = true;
 
@@ -4722,7 +4718,7 @@ function initGUI() {
 	mapExporter = gui.addFolder('Map Exporter');
 	mapExporter.add(exporter, 'saveAsJSON');
 	mapExporter.add(exporter, 'saveAsOBJ');
-	mapExporter.add(exporter, 'targetEngine', ['THREE.js', 'Unity', 'UnrealEngine']).onChange( function(value) {
+	mapExporter.add(exporter, 'targetEngine', ['THREE.js', 'Unity', 'UnrealEngine', 'Blender']).onChange( function(value) {
 		if (value == 'Unity') {
 			// In Unity, make sure x points to the east, z points to the north, y ponits up to the sky
 			targetEngineMatrix.set(-1,0,0, 0,0,1, 0,1,0);
@@ -4731,6 +4727,10 @@ function initGUI() {
 			// In Unreal, make sure x points to the east, y points to the south, z points up to the sky
 			// wierd, tilted 45, do not know why
 			targetEngineMatrix.set(1,0,0, 0,-1,0, 0,1,0);
+		}
+		if (value == 'Blender') {
+			// In Blender, 
+			targetEngineMatrix.set(1,0,0, 0,0,-1, 0,1,0);
 		}
 		if (value == 'THREE.js') {
 			// In THREE.js, x, y, z is the same as those in OpendDrive's inertial system
@@ -4741,7 +4741,7 @@ function initGUI() {
 	mapViewer = gui.addFolder('Map Viewer');
 	mapViewer.add(viewer, 'mapName', Object.keys(maps)).onChange( function(value) { resetViewer(); clearRoads(); rebuildMap(); paveRoads(map.roads, true); closeEditor(); initEditor(); } );
 	resetViewer();
-	mapViewer.open();
+	//mapViewer.open();
 
 	function rebuildMap() {
 		if (map) {
@@ -4776,7 +4776,6 @@ function initGUI() {
 			placeSignalsInRoads([road.id]);
 		}
 	}
-
 
 	function initEditor() {
 
@@ -5392,6 +5391,7 @@ function initGUI() {
 
 		alert('Editions have been saved.');
 	}
+
 }
 
 /*
@@ -5560,6 +5560,244 @@ function onDocumentMouseMove( event ) {
 	mouse.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
 }
 
+/*************************************************************
+**		Unit Shape Track Model for Kart.xd project			**
+**************************************************************/
+/*
+* Since it does not need to control the g unlike the actual situation, the loop has one constant radius with 360 degree
+*/
+function verticalLoop(r, width) {
+	var centralPoints = [];
+	var leftPoints = [];
+	var rightPoints = [];
+	var theta = 0;
+
+	var prePoint, s = 0, preS = 0;
+
+	do {
+
+		if (theta == 0) {
+			centralPoints.push(new THREE.Vector3());
+			leftPoints.push(new THREE.Vector3(0, width / 2, 0));
+			rightPoints.push(new THREE.Vector3(0, -width / 2, 0));
+			s += step;
+			theta += step / r;
+			continue;
+		}
+
+		if (theta > Math.PI * 2 - 1E-4) theta = Math.PI * 2;
+
+		prePoint = centralPoints[centralPoints.length - 1];
+
+		x = prePoint.x + 2 * r * Math.sin((s - preS) / r / 2) * Math.cos(theta + (s - preS) / r / 2);
+		y = 1.2 * width / ( 2 * Math.PI * r ) * s;
+		z = prePoint.z + 2 * r * Math.sin((s - preS) / r / 2) * Math.sin(theta + (s - preS) / r / 2);
+
+		centralPoints.push(new THREE.Vector3(x, y, z));
+		leftPoints.push(new THREE.Vector3(x, y + width / 2, z));
+		rightPoints.push(new THREE.Vector3(x, y - width / 2, z));
+
+		theta += (s - preS) / r;
+		preS = s;
+		s += step;
+
+	} while (theta < Math.PI * 2 + step / r);
+
+	//drawCustomLine(centralPoints, 0xFF0000);
+	//drawCustomLine(leftPoints, 0xFF6666);
+	//drawCustomLine(rightPoints, 0x6666FF);
+
+	var geometry = createCustomFaceGeometry(leftPoints, rightPoints);
+	var material = new THREE.MeshBasicMaterial({color: 0xCFCFCF, side: THREE.DoubleSide});
+	var mesh = new THREE.Mesh(geometry, material);
+	return mesh;
+}
+
+/*
+* Different components of track based on RTC
+*/
+function rollBegin(direction, length, width, deltaHeight) {
+
+	var centralPoints = [];
+	var leftPoints = [];
+	var rightPoints = [];
+
+	var elevation = {s: 0, a: 0, b: deltaHeight ? deltaHeight / length : 0, c: 0, d: 0};
+	var superelevation = {s: 0, a: 0, b: Math.PI / 6 / length, c: 0, d: 0};
+	var s = 0, t, h;
+	var svector = new THREE.Vector3(), tvector = new THREE.Vector3(), hvector = new THREE.Vector3();
+	var x, y, z;
+
+	do {
+
+		if (s > length) s = length;
+
+		svector.set(1, 0, 0);
+		tvector.set(0, 1, 0);
+		if (direction == 'left')
+			tvector.applyAxisAngle(svector, -s * superelevation.b);
+		else if (direction == 'right')
+			tvector.applyAxisAngle(svector, s * superelevation.b);
+		hvector.set(0, 0, elevation.b * s);
+
+		centralPoints.push(svector.multiplyScalar(s).add(hvector));
+		leftPoints.push(tvector.clone().multiplyScalar(width / 2).add(svector));
+		rightPoints.push(tvector.clone().multiplyScalar(-width / 2).add(svector));
+
+		s += step;
+
+	} while (s < length + step);
+
+	//drawCustomLine(centralPoints, 0xFF0000);
+	//drawCustomLine(leftPoints, 0xFF6666);
+	//drawCustomLine(rightPoints, 0x6666FF);
+
+	var geometry = createCustomFaceGeometry(leftPoints, rightPoints);
+	var material = new THREE.MeshBasicMaterial({color: 0xCFCFCF, side: THREE.DoubleSide});
+	var mesh = new THREE.Mesh(geometry, material);
+	return mesh;
+}
+
+function rollEnd(direction, length, width, deltaHeight) {
+	var centralPoints = [];
+	var leftPoints = [];
+	var rightPoints = [];
+
+	var elevation = {s: 0, a: 0, b: deltaHeight ? deltaHeight / length : 0, c: 0, d: 0};
+	var superelevation = {s: 0, a: Math.PI / 6, b: -Math.PI / 6 / length, c: 0, d: 0};
+	var s = 0, t, h;
+	var svector = new THREE.Vector3(), tvector = new THREE.Vector3(), hvector = new THREE.Vector3();
+
+	do {
+		if (s > length) s = length;
+
+		svector.set(1, 0, 0);
+		tvector.set(0, 1, 0);
+		if (direction == 'left')
+			tvector.applyAxisAngle(svector, -(superelevation.a + superelevation.b * s));
+		else if (direction == 'right')
+			tvector.applyAxisAngle(svector, superelevation.a + superelevation.b * s);
+		hvector.set(0, 0, elevation.b * s);
+
+		centralPoints.push(svector.multiplyScalar(s).add(hvector));
+		leftPoints.push(tvector.clone().multiplyScalar(width / 2).add(svector));
+		rightPoints.push(tvector.clone().multiplyScalar(-width/2).add(svector));
+
+		s += step;
+
+	} while (s < length + step);
+
+	//drawCustomLine(centralPoints, 0xFF0000);
+	//drawCustomLine(leftPoints, 0xFF6666);
+	//drawCustomLine(rightPoints, 0x6666FF);
+
+	var geometry = createCustomFaceGeometry(leftPoints, rightPoints);
+	var material = new THREE.MeshBasicMaterial({color: 0xCFCFCF, side: THREE.DoubleSide});
+	var mesh = new THREE.Mesh(geometry, material);
+	return mesh;
+}
+
+function rollArc(direction, length, width, radius, deltaHeight) {
+	var centralPoints = [];
+	var leftPoints = [];
+	var rightPoints = [];
+
+	var elevation = {s: 0, a: 0, b: deltaHeight ? deltaHeight / length: 0, c: 0, d: 0};
+	var superelevation = {s: 0, a: Math.PI / 6, b: 0, c: 0, d: 0};
+	var s = 0, t, h;
+	var svector = new THREE.Vector3(), tvector = new THREE.Vector3();
+	var x, y, z;
+
+	var preS = 0, prePoint;
+	var curvatureSign = direction == "left" ? 1 : -1;
+
+	do {
+
+		if (s > length) s = length;
+
+		svector.set(1, 0, 0);
+		svector.applyAxisAngle(new THREE.Vector3(0, 0, 1), curvatureSign * s / radius);
+		tvector.set(0, 1, 0);
+		tvector.applyAxisAngle(new THREE.Vector3(0, 0, 1), curvatureSign * s / radius);
+		if (direction == 'left')
+			tvector.applyAxisAngle(svector, -superelevation.a);
+		else if (direction == 'right')
+			tvector.applyAxisAngle(svector, superelevation.a);
+		
+		if (s == 0) {
+			centralPoints.push(new THREE.Vector3());
+			leftPoints.push(tvector.clone().multiplyScalar(width / 2));
+			rightPoints.push(tvector.clone().multiplyScalar(-width / 2));
+			preS = s;
+			s += step;
+			continue;
+		}
+
+		prePoint = centralPoints[centralPoints.length - 1];
+		x = prePoint.x + 2 * radius * Math.sin((s - preS) / radius / 2) * Math.cos(curvatureSign * (preS / radius + (s - preS) / radius / 2));
+		y = prePoint.y + 2 * radius * Math.sin((s - preS) / radius / 2) * Math.sin(curvatureSign * (preS / radius + (s - preS) / radius / 2));
+		z = elevation.b * s;
+
+		centralPoints.push(new THREE.Vector3(x, y, z));
+		leftPoints.push(tvector.clone().multiplyScalar(width / 2).add(new THREE.Vector3(x, y, z)));
+		rightPoints.push(tvector.clone().multiplyScalar(-width / 2).add(new THREE.Vector3(x, y, z)));
+
+		preS = s;
+		s += step;
+
+	} while (s < length + step);
+
+	//drawCustomLine(centralPoints, 0xFF0000);
+	//drawCustomLine(leftPoints, 0xFF6666);
+	//drawCustomLine(rightPoints, 0x6666FF);
+
+	var geometry = createCustomFaceGeometry(leftPoints, rightPoints);
+	var material = new THREE.MeshBasicMaterial({color: 0xCFCFCF, side: THREE.DoubleSide});
+	var mesh = new THREE.Mesh(geometry, material);
+	return mesh;
+}
+
+function rollLine(direction, length, width, deltaHeight) {
+	var centralPoints = [];
+	var leftPoints = [];
+	var rightPoints = [];
+
+	var elevation = {s: 0, a: deltaHeight, b: deltaHeight ? deltaHeight / length: 0, c: 0, d: 0};
+	var superelevation = {s: 0, a: Math.PI / 6, b: 0, c: 0, d: 0};
+	var s = 0, t, h;
+	var svector = new THREE.Vector3(), tvector = new THREE.Vector3(), hvector = new THREE.Vector3();
+	var x, y, z;
+
+	do {
+		if (s > length) s = length;
+
+		svector.set(1, 0, 0);
+		tvector.set(0, 1, 0);
+		if (direction == 'left')
+			tvector.applyAxisAngle(svector, -superelevation.a);
+		else if (direction == 'right')
+			tvector.applyAxisAngle(svector, superelevation.a);
+		hvector = svector.clone();
+		hvector.cross(tvector);
+
+		centralPoints.push(svector.multiplyScalar(s).add(hvector.multiplyScalar(elevation.a)));
+		leftPoints.push(tvector.clone().multiplyScalar(width / 2).add(svector));
+		rightPoints.push(tvector.clone().multiplyScalar(-width / 2).add(svector));
+
+		s += step;
+
+	} while (s < length + step);
+
+	//drawCustomLine(centralPoints, 0xFF0000);
+	//drawCustomLine(leftPoints, 0xFF6666);
+	//drawCustomLine(rightPoints, 0x6666FF);
+
+	var geometry = createCustomFaceGeometry(leftPoints, rightPoints);
+	var material = new THREE.MeshBasicMaterial({color: 0xCFCFCF, side: THREE.DoubleSide});
+	var mesh = new THREE.Mesh(geometry, material);
+	return mesh;
+}
+
 function test() {
 	var roadIds = getConnectingRoadIds('500');
 	//paveRoadsByIds(roadIds);
@@ -5571,15 +5809,15 @@ function test() {
 		//console.log(road.geometry[road.geometry.length - 1].s + road.geometry[road.geometry.length - 1].length, road.length)
 	}
 
-	var s = 0.48666;
-	var t = 0;
-	var h = 1;
-	//var point = track2Inertial('500', s, t, h).position;
-	//drawLineAtPoint(point, 0, 0x000001)
+	var s = 0;
+	var t = -1;
+	var h = 0;
+	var point = track2Inertial('500', s, t, h).position;
+	//console.log('track2Inertial point ', point);
 
 	var rBorderPoints = [new THREE.Vector3(-1, 1, 1), new THREE.Vector3(-1, -1, 1)]
 	var lBorderPoints = [new THREE.Vector3(1, 1, 1), new THREE.Vector3(1, -1, 1), new THREE.Vector3(1, -2, 1)]
-	var geometry = createCustomFaceGeometry(lBorderPoints, rBorderPoints)
+	var geometry = createCustomFaceGeometry(lBorderPoints, rBorderPoints);
 	var material = new THREE.MeshBasicMaterial({color: 0xFF0000, side: THREE.DoubleSide});
 	var mesh = new THREE.Mesh(geometry, material);
 	//scene.add(mesh);
@@ -5595,7 +5833,7 @@ function test() {
 	
 	hvector = svector.clone();
 	hvector.cross(tvector);
-
+ 
 	//drawDirectionalVector(svector, 0xFF0000);
 	//drawDirectionalVector(tvector, 0x0000FF);
 	//drawDirectionalVector(hvector, 0x00FF00);
@@ -5609,7 +5847,7 @@ function test() {
 	var s = Math.random() * map.roads[roadId].length//(map.roads[roadId].geometry[1].s - map.roads[roadId].geometry[0].s) + map.roads[roadId].geometry[0].s;
 	var t = Math.random() * -4;
 	var h = 0;
-	var position = track2Inertial(roadId, s, t, h).position;
+	//var position = track2Inertial(roadId, s, t, h).position;
 	//drawLineAtPoint(position, 0, 5, 0x000001)
 	//console.log('s',s, '\nt',t,'\nh', h, '\nposition', position.x, position.y, position.z);
 	//var inGeometry = isWithinGeometry(map.roads[roadId].geometry[0], position.x, position.y);
@@ -5652,4 +5890,24 @@ function test() {
 	//var meshArray = group.road.concat(group.roadMark).concat(group.signal);
 	//exportOBJ([roadsMesh['500'], roadsMesh['508']], 'map.obj');
 	//loadOBJ('../data/map.obj');
+
+	var mesh = verticalLoop(18, 5);
+	//scene.add(mesh);
+
+	mesh = rollBegin('right', 10, 5, 0);
+	mesh.position.set(0, 0, 10);
+	//scene.add(mesh);
+
+	mesh = rollArc('right', Math.PI * 10, 5, 10, -10);
+	mesh.position.set(10, 0, 10);
+	//scene.add(mesh);
+
+	mesh = rollEnd('right', 10, 5, 0);
+	mesh.position.set(10, -20, 0);
+	mesh.rotation.set(0, 0, Math.PI);
+	//scene.add(mesh);
+
+	mesh = rollLine('right', 10, 5, 5);
+	mesh.position.set(0, -50, 0);
+	//scene.add(mesh);
 }
