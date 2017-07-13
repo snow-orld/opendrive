@@ -2351,16 +2351,27 @@ function createCustomFaceGeometry(lBorderPoints, rBorderPoints)  {
 
 	var geometry = new THREE.BufferGeometry();
 	var vertices = [];
+	var index = [];
+
+	vertices = vertices.concat([rBorderPoints[0].x, rBorderPoints[0].y, rBorderPoints[0].z]);
+	vertices = vertices.concat([lBorderPoints[0].x, lBorderPoints[0].y, lBorderPoints[0].z]);
 
 	// start from iBorder's first point, each loop draw 2 triangles representing the quadralateral iBorderP[i], iBorderP[i+1], oBorder[i+1], oBorder[i] 
 	for (var i = 0; i < Math.min(lBorderPoints.length, rBorderPoints.length) - 1; i++) {
-		vertices = vertices.concat([rBorderPoints[i].x, rBorderPoints[i].y, rBorderPoints[i].z]);
+		//vertices = vertices.concat([rBorderPoints[i].x, rBorderPoints[i].y, rBorderPoints[i].z]);
+		//vertices = vertices.concat([rBorderPoints[i + 1].x, rBorderPoints[i + 1].y, rBorderPoints[i + 1].z]);
+		//vertices = vertices.concat([lBorderPoints[i + 1].x, lBorderPoints[i + 1].y, lBorderPoints[i + 1].z]);
+
+		//vertices = vertices.concat([rBorderPoints[i].x, rBorderPoints[i].y, rBorderPoints[i].z]);
+		//vertices = vertices.concat([lBorderPoints[i + 1].x, lBorderPoints[i + 1].y, lBorderPoints[i + 1].z]);
+		//vertices = vertices.concat([lBorderPoints[i].x, lBorderPoints[i].y, lBorderPoints[i].z]);
+	}
+
+	for (var i = 0; i < Math.min(lBorderPoints.length, rBorderPoints.length) - 1; i++) {
 		vertices = vertices.concat([rBorderPoints[i + 1].x, rBorderPoints[i + 1].y, rBorderPoints[i + 1].z]);
 		vertices = vertices.concat([lBorderPoints[i + 1].x, lBorderPoints[i + 1].y, lBorderPoints[i + 1].z]);
 
-		vertices = vertices.concat([rBorderPoints[i].x, rBorderPoints[i].y, rBorderPoints[i].z]);
-		vertices = vertices.concat([lBorderPoints[i + 1].x, lBorderPoints[i + 1].y, lBorderPoints[i + 1].z]);
-		vertices = vertices.concat([lBorderPoints[i].x, lBorderPoints[i].y, lBorderPoints[i].z]);
+		index = index.concat([2 * i, 2 * i + 2, 2 * i + 3, 2 * i, 2 * i + 3, 2 * i + 1]);
 	}
 
 	if (lBorderPoints.length < rBorderPoints.length) {
@@ -2368,9 +2379,15 @@ function createCustomFaceGeometry(lBorderPoints, rBorderPoints)  {
 		var lPoint = lBorderPoints[lBorderPoints.length - 1];
 
 		for (var i = lBorderPoints.length - 1; i < rBorderPoints.length - 1; i++) {
-			vertices = vertices.concat([lPoint.x, lPoint.y, lPoint.z]);
-			vertices = vertices.concat([rBorderPoints[i].x, rBorderPoints[i].y, rBorderPoints[i].z]);
-			vertices = vertices.concat([rBorderPoints[i + 1].x, rBorderPoints[i + 1].y, rBorderPoints[i + 1].z]);
+			//vertices = vertices.concat([lPoint.x, lPoint.y, lPoint.z]);
+			//vertices = vertices.concat([rBorderPoints[i].x, rBorderPoints[i].y, rBorderPoints[i].z]);
+			//vertices = vertices.concat([rBorderPoints[i + 1].x, rBorderPoints[i + 1].y, rBorderPoints[i + 1].z]);
+		}
+
+		var lIndex = lBorderPoints.length * 2 - 1;
+		for (var i = 0; i < rBorderPoints.length - lBorderPoints.length; i++) {
+			vertices = vertices.concat([rBorderPoints[lBorderPoints.length + i].x, rBorderPoints[lBorderPoints.length + i].y, rBorderPoints[lBorderPoints.length + i].z]);
+			index = index.concat([lIndex, lIndex - 1, lIndex + i + 1]);
 		}
 	}
 
@@ -2378,17 +2395,25 @@ function createCustomFaceGeometry(lBorderPoints, rBorderPoints)  {
 	if (lBorderPoints.length > rBorderPoints.length) {
 
 		var rPoint = rBorderPoints[rBorderPoints.length - 1];
-
+		
 		for (var i = rBorderPoints.length - 1; i < lBorderPoints.length - 1; i++) {
-			vertices = vertices.concat([rPoint.x, rPoint.y, rPoint.z]);
-			vertices = vertices.concat([lBorderPoints[i + 1].x, lBorderPoints[i + 1].y, lBorderPoints[i + 1].z]);
-			vertices = vertices.concat([lBorderPoints[i].x, lBorderPoints[i].y, lBorderPoints[i].z]);
+			//vertices = vertices.concat([rPoint.x, rPoint.y, rPoint.z]);
+			//vertices = vertices.concat([lBorderPoints[i + 1].x, lBorderPoints[i + 1].y, lBorderPoints[i + 1].z]);
+			//vertices = vertices.concat([lBorderPoints[i].x, lBorderPoints[i].y, lBorderPoints[i].z]);
+		}
+
+		var rIndex = rBorderPoints.length * 2 - 2;
+		for (var i = 0; i < lBorderPoints.length - rBorderPoints.length; i++) {
+			vertices = vertices.concat([lBorderPoints[rBorderPoints.length + i].x, lBorderPoints[rBorderPoints.length + i].y, lBorderPoints[rBorderPoints.length + i].z]);
+			index = index.concat([rIndex, rIndex + 1 + i + 1, rIndex + 1 + i]);
 		}
 	}
 
-	vertices = Float32Array.from(vertices)
+	vertices = Float32Array.from(vertices);
+	index = Uint32Array.from(index);
 	// itemSize = 3 becuase there are 3 values (components) per vertex
 	geometry.addAttribute('position', new THREE.BufferAttribute(vertices, 3));
+	geometry.setIndex(new THREE.BufferAttribute(index, 1));
 
 	return geometry;
 }
@@ -5798,6 +5823,22 @@ function rollLine(direction, length, width, deltaHeight) {
 	return mesh;
 }
 
+function isWithinMesh(mesh) {
+	var g = mesh.geometry;
+	var vertices = g.getAttribute('position').array;
+	var indicies = g.index.array;
+	var faceCnt = 1000;
+	var cnt = 0;
+	//console.log(vertices, indicies);
+	for (var i = 0; i * faceCnt * 3 < indicies.length; i++) {
+		for (var j = 0; j < Math.min(faceCnt, indicies.length / 3 - faceCnt * i); j = j + 1) {
+			// i * faceCnt + j * 3 + 0 / 1 / 2
+			//console.log(i, j);
+			//console.log(vertices[indicies[i * faceCnt + j * 3]], vertices[indicies[i * faceCnt + j * 3 + 1]], vertices[indicies[i * faceCnt + j * 3 + 2]]);
+		}
+	}
+}
+
 function test() {
 	var roadIds = getConnectingRoadIds('500');
 	//paveRoadsByIds(roadIds);
@@ -5856,7 +5897,6 @@ function test() {
 	//console.log(onRoad)
 	//console.log('track error: s', onRoad.s - s, 't', onRoad.t - t, 'h', onRoad.h - h);
 
-
 	//paveRoads(map.roads)
 	//paveRoads(map.roads, true)
 	//paveRoadsByIds([roadId], true);
@@ -5875,39 +5915,44 @@ function test() {
 	//geometryPlanView('509')
 
 	// -8.318342827395044 -0.6232362266760951 1.6006798769007737 for map Crossing8Course.xdor: 500, 504, 506, 509, 512
-	//var x = Math.random() * 20 - 10;
-	//var y = Math.random() * 20 - 10;
-	//var z = Math.random() * 20 - 10;
+	var x = Math.random() * -20// - 10;
+	var y = Math.random() * 15// - 10;
+	var z = 0//Math.random() * 20 - 10;
 	//console.log(x,y,z)
-	//drawSphereAtPoint(new THREE.Vector3(x,y,z), 0.5, 0x000001)
+	//drawSphereAtPoint(new THREE.Vector3(x,y,z), 0.2, 0x2F2F2F)
 	//var trackPosition = inertial2Track(x, y, z);
 	//console.log(trackPosition);
 	//for (var id in trackPosition) {
-	//	var inertial = track2Inertial(id, trackPosition[id].s, trackPosition[id].t, trackPosition[id].h);
-	//	drawSphereAtPoint(inertial.position, 0.05, 0x0000FF);
+	//	if (trackPosition[id].on) {
+	//		var inertial = track2Inertial(id, trackPosition[id].s, trackPosition[id].t, trackPosition[id].h);
+	//		drawSphereAtPoint(inertial.position, 0.05, 0x0000FF);
+	//	}
 	//}
 
 	//var meshArray = group.road.concat(group.roadMark).concat(group.signal);
 	//exportOBJ([roadsMesh['500'], roadsMesh['508']], 'map.obj');
 	//loadOBJ('../data/map.obj');
 
-	var mesh = verticalLoop(18, 5);
+	//var mesh = verticalLoop(18, 5);
 	//scene.add(mesh);
 
-	mesh = rollBegin('right', 10, 5, 0);
-	mesh.position.set(0, 0, 10);
+	//mesh = rollBegin('right', 10, 5, 0);
+	//mesh.position.set(0, 0, 10);
 	//scene.add(mesh);
 
-	mesh = rollArc('right', Math.PI * 10, 5, 10, -10);
-	mesh.position.set(10, 0, 10);
+	//mesh = rollArc('right', Math.PI * 10, 5, 10, -10);
+	//mesh.position.set(10, 0, 10);
 	//scene.add(mesh);
 
-	mesh = rollEnd('right', 10, 5, 0);
-	mesh.position.set(10, -20, 0);
-	mesh.rotation.set(0, 0, Math.PI);
+	//mesh = rollEnd('right', 10, 5, 0);
+	//mesh.position.set(10, -20, 0);
+	//mesh.rotation.set(0, 0, Math.PI);
 	//scene.add(mesh);
 
-	mesh = rollLine('right', 10, 5, 5);
-	mesh.position.set(0, -50, 0);
+	//mesh = rollLine('right', 10, 5, 5);
+	//mesh.position.set(0, -50, 0);
 	//scene.add(mesh);
+
+	var mesh = new THREE.Mesh(new THREE.SphereBufferGeometry(5, 32, 32));
+	isWithinMesh(mesh);
 }
