@@ -30,7 +30,7 @@ function init() {
 
 	/** Setting up camera */
 	camera = new THREE.PerspectiveCamera(100, window.innerWidth / window.innerHeight, 0.05, 10000);
-	camera.position.set(0, 0, 20);
+	camera.position.set(0, 0, 200);
 	scene.add(camera);
 
 	/** Setting up light */
@@ -2459,12 +2459,23 @@ function createDiscontiniousMeshGeometry(lBorderPoints, rBorderPoints) {
 /*
 * Helper function for paving - test iBorder or oBorder
 */
-function drawCustomLine(points, color) {
+function generateCustomLine(points, color) {
 
 	var geometry = new THREE.Geometry();
 	geometry.vertices = points;
 	var material = new THREE.MeshBasicMaterial({color: color != undefined ? color : 0x00FF00});
 	var mesh = new THREE.Line(geometry, material);
+
+	return  mesh;	
+}
+
+function drawCustomLine(points, color) {
+
+	// var geometry = new THREE.Geometry();
+	// geometry.vertices = points;
+	// var material = new THREE.MeshBasicMaterial({color: color != undefined ? color : 0x00FF00});
+	// var mesh = new THREE.Line(geometry, material);
+	var mesh = generateCustomLine(points, color);
 	scene.add(mesh);
 }
 
@@ -2488,6 +2499,45 @@ function drawDirectionalVector(vector3, color) {
 
 	var points = [new THREE.Vector3(), vector3];
 	drawCustomLine(points, color);
+}
+
+/*
+* p0, p1 is the start/end position
+* t0, t1 is the tangent at start/end position
+* samplingRate is the inverse of the uniformed sampling point
+*/
+function cubicHermitePoints(p0, t0, p1, t1, samplingRate) {
+	var rate = samplingRate || 10;
+	var step = 1 / rate;
+	var points = [];
+	var p;
+	var t = 0;
+	do {
+		if (t > 1) t = 1;
+		p = p0.clone().multiplyScalar(2*t*t*t-3*t*t+1)
+		p.add(t0.clone().multiplyScalar((t*t*t - 2*t*t+t) * (Math.abs(p1.x - p0.x))))
+		p.add(p1.clone().multiplyScalar(-2*t*t*t + 3*t*t))
+		p.add(t1.clone().multiplyScalar((t*t*t-t*t) * (Math.abs(p1.x - p0.x))))
+		points.push(p);
+		// drawSphereAtPoint(p, 0.03, 0xFF6666)
+		t += step;
+	} while (t < 1 + step);
+
+	drawSphereAtPoint(p0, 0.08, 0x0000FF)
+	drawSphereAtPoint(p1, 0.08, 0x00FF00)
+	drawCustomLine([p0, p0.clone().add(t0)], 0xFF6666)
+	drawCustomLine([p1, p1.clone().add(t1)], 0x6666FF)
+	// drawCustomLine(points, 0x000000)
+
+	return points;
+}
+
+function customLineLength(points) {
+	var l = 0;
+	for (var i = 1; i < points.length; i++) {
+		l += points[i].distanceTo(points[i - 1]);
+	}
+	return l;
 }
 
 /*
