@@ -2349,6 +2349,8 @@ function reversePoints(points) {
 */
 function createCustomFaceGeometry(lBorderPoints, rBorderPoints)  {
 
+	if (lBorderPoints.length == 0 || rBorderPoints.length == 0) return;
+
 	var geometry = new THREE.BufferGeometry();
 	var vertices = [];
 	var index = [];
@@ -2414,6 +2416,7 @@ function createCustomFaceGeometry(lBorderPoints, rBorderPoints)  {
 	// itemSize = 3 becuase there are 3 values (components) per vertex
 	geometry.addAttribute('position', new THREE.BufferAttribute(vertices, 3));
 	geometry.setIndex(new THREE.BufferAttribute(index, 1));
+	// geometry.computeVertexNormals();
 
 	return geometry;
 }
@@ -2501,35 +2504,94 @@ function drawDirectionalVector(vector3, color) {
 	drawCustomLine(points, color);
 }
 
+function hermite_getPosition(t, p0, v0, p1, v1) {
+	var p;
+	p = p0.clone().multiplyScalar(2*t*t*t-3*t*t+1)
+	p.add(v0.clone().multiplyScalar((t*t*t - 2*t*t+t) * Math.abs(p1.x - p0.x)))
+	p.add(p1.clone().multiplyScalar(-2*t*t*t + 3*t*t))
+	p.add(v1.clone().multiplyScalar((t*t*t-t*t) * Math.abs(p1.x - p0.x)))
+
+	return p;
+}
+
+function hermite_getSpeed(t, p0, v0, p1, v1) {
+	var v;
+	v = p0.clone().multiplyScalar((6*t*t-6*t) / Math.abs(p1.x - p0.x))
+	v.add(v0.clone().multiplyScalar(3*t*t-4*t+1))
+	v.add(p1.clone().multiplyScalar((-6*t*t+6*t) / Math.abs(p1.x - p0.x)))
+	v.add(v1.clone().multiplyScalar(3*t*t-2*t))
+	return v;
+}
+
 /*
 * p0, p1 is the start/end position
-* t0, t1 is the tangent at start/end position
+* v0, v1 is the tangent at start/end position
 * samplingRate is the inverse of the uniformed sampling point
+*
+* BUG: if p0, p0 + v0, p1 +v1 is all in line, inifinite loop happens
 */
-function cubicHermitePoints(p0, t0, p1, t1, samplingRate) {
+function cubicHermitePoints(p0, v0, p1, v1, samplingRate) {
 	var rate = samplingRate || 10;
-	var step = 1 / rate;
+	var step = (p1.x - p0.x) / rate;
 	var points = [];
 	var p;
-	var t = 0;
+	var t = 0, x = p0.x;
+	var range = Math.abs(p1.x - p0.x);
+
 	do {
+		t = (x - p0.x) / (p1.x - p0.x);
 		if (t > 1) t = 1;
 		p = p0.clone().multiplyScalar(2*t*t*t-3*t*t+1)
-		p.add(t0.clone().multiplyScalar((t*t*t - 2*t*t+t) * (Math.abs(p1.x - p0.x))))
+		p.add(v0.clone().multiplyScalar((t*t*t - 2*t*t+t) * range))
 		p.add(p1.clone().multiplyScalar(-2*t*t*t + 3*t*t))
-		p.add(t1.clone().multiplyScalar((t*t*t-t*t) * (Math.abs(p1.x - p0.x))))
+		p.add(v1.clone().multiplyScalar((t*t*t-t*t) * range))
 		points.push(p);
-		// drawSphereAtPoint(p, 0.03, 0xFF6666)
-		t += step;
-	} while (t < 1 + step);
+		// drawSphereAtPoint(p, 0.05, 0xFF6666)
+		x += step;
+	} while (t < 1);
 
 	drawSphereAtPoint(p0, 0.08, 0x0000FF)
 	drawSphereAtPoint(p1, 0.08, 0x00FF00)
-	drawCustomLine([p0, p0.clone().add(t0)], 0xFF6666)
-	drawCustomLine([p1, p1.clone().add(t1)], 0x6666FF)
+	drawCustomLine([p0, p0.clone().add(v0)], 0xFF6666)
+	drawCustomLine([p1, p1.clone().add(v1)], 0x6666FF)
 	// drawCustomLine(points, 0x000000)
 
 	return points;
+}
+
+function cubicHermitePoints_subDivide(p0, v0, p1, v1) {
+	// draw by sub-division
+	var step = 1;
+	var points = [];
+	var mid, midv;
+	var firstHalf = [], lastHalf = [];
+
+	if (p0.distanceTo(p1) <= step * 2 - 1E-4) {
+		points.push(p0);
+		points.push(p1);
+		return points;
+	} else {
+		mid = hermite_getPosition(0.5, p0, v0, p1, v1);
+		midv = hermite_getSpeed(0.5, p0, v0, p1, v1);
+		// drawSphereAtPoint(mid, 0.1, 0xFF0000);
+		// drawCustomLine([mid, mid.clone().add(midv)], 0xFF0000);
+		
+		firstHalf = cubicHermitePoints_subDivide(p0, v0, mid, midv);
+		lastHalf = cubicHermitePoints_subDivide(mid, midv, p1, v1);
+		lastHalf.splice(0, 1);
+		points = points.concat(firstHalf);
+		points = points.concat(lastHalf);
+	}
+
+	return points;
+}
+
+function linearInterpolation(p0, p1, t) {
+	var p;
+	p = p0.clone().multiplyScalar(1-t);
+	p.add(p1.clone().multiplyScalar(t));
+
+	return p;
 }
 
 function customLineLength(points) {
@@ -2538,6 +2600,130 @@ function customLineLength(points) {
 		l += points[i].distanceTo(points[i - 1]);
 	}
 	return l;
+}
+
+function evenDistributePoints(points, step) {
+
+	var length = 0;
+	var pointS = [];
+	var currentS = 0;
+	var index = 0;
+	var newPoint;
+	var newPoints = [];
+	
+	for (var i = 0; i < points.length; i++) {
+		
+		if (i == 0) 
+			length = 0;
+		else
+			length += points[i].distanceTo(points[i - 1]);
+
+		pointS.push(length);
+	}
+
+	do {
+
+		if (Math.abs(currentS - length) < 1E-4 || currentS > length) currentS = length;
+
+		while (currentS > 0 && index < points.length && currentS >= pointS[index + 1]) {
+			index++;
+		}
+
+		if (currentS == length) {
+			newPoint = points[points.length - 1];
+		} else {
+			newPoint = linearInterpolation(points[index], points[index + 1], (currentS - pointS[index]) / (pointS[index + 1] - pointS[index]));
+		}
+
+		newPoints.push(newPoint);
+		drawSphereAtPoint(newPoint, 0.05, 0x00FF00);
+
+		currentS += step;
+
+	} while(currentS < length + step);
+
+	return newPoints;
+}
+
+function slopeLine(length, startSlope, endSlope) {
+
+	var step = 1;
+	var s = preS = 0;
+	var k = (endSlope - startSlope) / length;
+	var point, prePoint;
+	var points = [];
+
+	do {
+
+		if (Math.abs(s - length) < 1E-4 || s > length) {
+			s = length;
+		}
+
+		if (s == 0) {
+			points.push(new THREE.Vector3());
+			s += step;
+			continue;
+		}
+
+		prePoint = points[points.length - 1];
+		point = prePoint.clone().add(new THREE.Vector3((s - preS),0,0)).add(new THREE.Vector3(0,0,(s - preS) * (k * (s + preS) * 0.5 + startSlope)));
+
+		points.push(point);
+
+		preS = s;
+		s += step;
+
+	} while( s < length + step);
+
+	return points;
+}
+
+function cubicEaseElevation(length, startSlope, endSlope, deltaZ) {
+
+	var elevation = {a: 0, b: 0, c: 0, d: 0};
+	elevation.b = startSlope;
+	elevation.c = (3 * deltaZ - 2 * startSlope * length - endSlope * length) / Math.pow(length, 2);
+	elevation.d = (startSlope * length + endSlope * length - 2 * deltaZ) / Math.pow(length, 3);
+
+	var step = 1;
+	var s = 0;
+	var points = [];
+
+	do {
+
+		if (Math.abs(s - length) < 1E-4 || s > length) s == length;
+
+		points.push(new THREE.Vector3(s, 0, cubicPolynomial(s, elevation)));
+
+		s += step;
+
+	} while (s < length + step);
+
+	return points;
+}
+
+
+function squareEaseElevation(length, startSlope, endSlope) {
+
+	var elevation = {a: 0, b: 0, c: 0, d: 0};
+	elevation.b = startSlope;
+	elevation.c = (- startSlope + endSlope) / 2 / length;
+
+	var step = 1;
+	var s = 0;
+	var points = [];
+
+	do {
+
+		if (Math.abs(s - length) < 1E-4 || s > length) s == length;
+
+		points.push(new THREE.Vector3(s, 0, cubicPolynomial(s, elevation)));
+
+		s += step;
+
+	} while (s < length + step);
+
+	return points;
 }
 
 /*
@@ -4795,7 +4981,7 @@ function initGUI() {
 	mapExporter.add(exporter, 'saveAsOBJ');
 	mapExporter.add(exporter, 'targetEngine', ['THREE.js', 'Unity', 'UnrealEngine', 'Blender']).onChange( function(value) {
 		if (value == 'Unity') {
-			// In Unity, make sure x points to the east, z points to the north, y ponits up to the sky
+			// In Unity, make sure x points to the east, z points to the north, y points up to the sky
 			targetEngineMatrix.set(-1,0,0, 0,0,1, 0,1,0);
 		}
 		if (value == 'UnrealEngine') {
