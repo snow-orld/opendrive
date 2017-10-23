@@ -7,7 +7,12 @@
 			"z": 0
 		},
 		"length": 78.5,
-		"radius": 25
+		"radius": 25,
+		
+		"startSlope": 0,
+		"endSlope": 0.3,
+		"startSup": 0,
+		"endSup": -20
 	},
 	{
 		"id": 1,
@@ -17,7 +22,13 @@
 			"z": 0
 		},
 		"length": 155,
-		"radius": 26
+		"radius": 26,
+		
+		"startSlope": 0.3,
+		"midSlope": 0,
+		"endSlope": -0.5,
+		"startSup": -20,
+		"endSup": -20
 	},
 
 	{
@@ -28,7 +39,12 @@
 			"z": 0
 		},
 		"length": 80,
-		"radius": -15
+		"radius": -15,
+		"startSlope": -0.3,
+		"midSlope": 0,
+		"endSlope": 0.16,
+		"startSup": 10,
+		"endSup": 10
 	},
 	{
 		"id": 3,
@@ -38,7 +54,11 @@
 			"z": 0
 		},
 		"length": 80,
-		"radius": 28
+		"radius": 28,
+		"startSlope": 0.16,
+		"endSlope": 0.16,
+		"startSup": -20,
+		"endSup": -30
 	},
 	{
 		"id": 4,
@@ -48,12 +68,21 @@
 			"z": 0
 		},
 		"length": 311.569281559648,
-		"radius": 52.5
+		"radius": 52.5,
+
+		"startSlope": 0.16,
+		"midSlope": 0,
+		"endSlope": 0,
+		"startSup": -30,
+		"midSup": -60,
+		"endSup": 0,
+
+		"useEndZ": true
 	},
 	{
 		"id": 5,
 		"position": {
-			"x": -120,
+			"x": -100,
 			"y": 0,
 			"z": 0
 		},

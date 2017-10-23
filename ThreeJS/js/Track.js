@@ -67,7 +67,7 @@ TrackBuilder.DefaultTrack2 = function(type) {
 		endHandleScale: 2,
 		startSlope: 0,
 		endSlope: 0,
-		useEndPosition: false,
+		useEndZ: false,
 		endSupRate: 0,
 		startSup: 0,
 		endSup: 0,
@@ -103,21 +103,20 @@ TrackBuilder.Track = function(data) {
 	this.endPositionL = new THREE.Vector3();
 	this.endPositionR = new THREE.Vector3();
 	this.endHeading = 0;
-	this.endSuperelevation = 0;
 
 	// for DefaultTrack2
 	this.halfwayRadius = data.halfwayRadius;
 	this.nextPoint = data.nextPoint ? data.nextPoint.clone() : new THREE.Vector3();
 	this.useEndVector = data.useEndVector || false;
 	this.endVector = data.endVector || new THREE.Vector3(1,0,0);
-	this.useEndPosition = data.useEndPosition || false;
+	this.useEndZ = data.useEndZ || false;
 	this.startHandleScale = data.startHandleScale || 2;
 	this.endHandleScale = data.endHandleScale || 2;
-	this.startSlope = data.startSlope;
-	this.endSlope = data.endSlope;
-	this.startSup = data.startSup;
-	this.endSup = data.endSup;
-	this.supAxis = data.supAxis;
+	this.startSlope = data.startSlope || 0;
+	this.endSlope = data.endSlope || 0;
+	this.startSup = data.startSup || 0;
+	this.endSup = data.endSup || 0;
+	this.supAxis = data.supAxis || 'central';
 	// end
 
 	// geometry generation due to superelevation method selector
@@ -148,7 +147,7 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 	// h0 the height introduced by superelevation at S=0
 	var h0 = this.width / 2 * Math.tan(Math.abs(this.startSup));
 
-	if (this.useEndPosition) {
+	if (this.useEndZ) {
 		this.elevation = generateCubicPolynomial(0, this.startSlope, this.endSlope, this.length, this.nextPoint.z - this.position.z);
 	} else {
 		this.elevation = generateSquarePolynomial(0, this.startSlope, this.endSlope, this.length);
@@ -163,7 +162,7 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 				if (s >= this.length) {
 					s = this.length;
 					this.endHeading = this.heading;
-					this.endSuperelevation = cubicPolynomial(this.length, this.superelevation);
+					this.endRoll = cubicPolynomial(this.length, this.superelevation);
 				}
 
 				h = cubicPolynomial(s, this.elevation);
@@ -199,7 +198,7 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 				if (s >= this.length) {
 					s = this.length;
 					this.endHeading = this.heading + s * this.curvature;
-					this.endSuperelevation = cubicPolynomial(this.length, this.superelevation);
+					this.endRoll = cubicPolynomial(this.length, this.superelevation);
 				}
 
 				h = cubicPolynomial(s, this.elevation);
@@ -280,7 +279,7 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 			var fullLength = this.subtype == 'fullTurn'? this.length : this.length / 2;
 			var centralPoint, leftPoint, rightPoint, deltaZ;
 
-			if (this.useEndPosition)
+			if (this.useEndZ)
 				this.elevation = generateCubicPolynomial(0, this.startSlope, this.endSlope, fullLength, this.nextPoint.z - this.position.z);
 			else
 				this.elevation = generateSquarePolynomial(0, this.startSlope, this.endSlope, fullLength);
@@ -300,17 +299,21 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 						
 						if (this.method == 'global') {
 							
-							rightPoint = new THREE.Vector3(0, - this.width / 2, -this.width / 2 * Math.tan(this.startSup));
-							leftPoint = new THREE.Vector3(0, this.width / 2, this.width / 2 * Math.tan(this.startSup));
-							deltaZ = this.width / 2 * Math.tan(this.startSup);
+							// rightPoint = new THREE.Vector3(0, - this.width / 2, -this.width / 2 * Math.tan(this.startSup));
+							// leftPoint = new THREE.Vector3(0, this.width / 2, this.width / 2 * Math.tan(this.startSup));
+							rightPoint = new THREE.Vector3(0, - this.width / 2 * Math.cos(this.startSup), -this.width / 2 * Math.sin(this.startSup));
+							leftPoint = new THREE.Vector3(0, this.width / 2 * Math.cos(this.startSup), this.width / 2 * Math.sin(this.startSup));
+							deltaZ = this.width / 2 * Math.sin(this.startSup);
 
 						} else if (this.method == 'local') {						
 							
 							svector.set(1, 0, this.startSlope).applyAxisAngle(zvector, this.heading).normalize();
 							tvector.set(0, 1, 0).applyAxisAngle(zvector, this.heading);
 							tvector.applyAxisAngle(svector, this.startSup);
-							leftPoint = tvector.clone().multiplyScalar(this.width / 2 / Math.cos(this.startSup));
-							rightPoint = tvector.clone().multiplyScalar(-this.width / 2 / Math.cos(this.startSup));
+							// leftPoint = tvector.clone().multiplyScalar(this.width / 2 / Math.cos(this.startSup));
+							// rightPoint = tvector.clone().multiplyScalar(-this.width / 2 / Math.cos(this.startSup));
+							leftPoint = tvector.clone().multiplyScalar(this.width / 2);
+							rightPoint = tvector.clone().multiplyScalar(-this.width / 2);
 							drawSphereAtPoint(leftPoint.clone().add(this.position), 0.1, 0x000000)
 						}
 
@@ -338,10 +341,13 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 					if (this.method == 'global') {
 
 						centralPoint = new THREE.Vector3(x, y, z);
-						leftPoint = new THREE.Vector3(x + this.width / 2 * Math.cos(currentHeading + Math.PI / 2), y + this.width / 2 * Math.sin(currentHeading + Math.PI / 2), z);
-						rightPoint = new THREE.Vector3(x + this.width / 2 * Math.cos(currentHeading - Math.PI / 2), y + this.width / 2 * Math.sin(currentHeading - Math.PI / 2), z);
+						// leftPoint = new THREE.Vector3(x + this.width / 2 * Math.cos(currentHeading + Math.PI / 2), y + this.width / 2 * Math.sin(currentHeading + Math.PI / 2), z);
+						// rightPoint = new THREE.Vector3(x + this.width / 2 * Math.cos(currentHeading - Math.PI / 2), y + this.width / 2 * Math.sin(currentHeading - Math.PI / 2), z);
+						leftPoint = new THREE.Vector3(x + this.width / 2 * Math.cos(rollAngle) * Math.cos(currentHeading + Math.PI / 2), y + this.width / 2 * Math.cos(rollAngle) * Math.sin(currentHeading + Math.PI / 2), z);
+						rightPoint = new THREE.Vector3(x + this.width / 2 * Math.cos(rollAngle) * Math.cos(currentHeading - Math.PI / 2), y + this.width / 2 * Math.cos(rollAngle) * Math.sin(currentHeading - Math.PI / 2), z);
 
-						deltaZ = Math.tan(rollAngle) * this.width / 2;
+						//deltaZ = Math.tan(rollAngle) * this.width / 2;
+						deltaZ = Math.sin(rollAngle) * this.width / 2;
 
 						if (this.supAxis == 'central') {
 							leftPoint.z += deltaZ;
@@ -364,8 +370,10 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 						tvector.applyAxisAngle(svector, rollAngle);
 
 						centralPoint = new THREE.Vector3(x, y, z);
-						leftPoint = tvector.clone().multiplyScalar(this.width / 2 / Math.cos(rollAngle)).add(centralPoint);
-						rightPoint = tvector.clone().multiplyScalar(-this.width / 2 / Math.cos(rollAngle)).add(centralPoint);
+						// leftPoint = tvector.clone().multiplyScalar(this.width / 2 / Math.cos(rollAngle)).add(centralPoint);
+						// rightPoint = tvector.clone().multiplyScalar(-this.width / 2 / Math.cos(rollAngle)).add(centralPoint);
+						leftPoint = tvector.clone().multiplyScalar(this.width / 2).add(centralPoint);
+						rightPoint = tvector.clone().multiplyScalar(-this.width / 2).add(centralPoint);
 						if (s == step) {
 							drawSphereAtPoint(leftPoint.clone().add(this.position), 0.1, 0x0000FF);
 						}
@@ -401,9 +409,11 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 							
 							if (this.method == 'global') {
 							
-								rightPoint = new THREE.Vector3(0, - this.width / 2, -this.width / 2 * Math.tan(this.startSup));
-								leftPoint = new THREE.Vector3(0, this.width / 2, this.width / 2 * Math.tan(this.startSup));
-								deltaZ = this.width / 2 * Math.tan(this.startSup);
+								// rightPoint = new THREE.Vector3(0, - this.width / 2, -this.width / 2 * Math.tan(this.startSup));
+								// leftPoint = new THREE.Vector3(0, this.width / 2, this.width / 2 * Math.tan(this.startSup));
+								// deltaZ = this.width / 2 * Math.tan(this.startSup);
+								rightPoint = new THREE.Vector3(0, - this.width / 2 * Math.cos(this.startSup), -this.width / 2 * Math.sin(this.startSup));
+								leftPoint = new THREE.Vector3(0, this.width / 2 * Math.cos(this.startSup), this.width / 2 * Math.sin(this.startSup));
 							
 							} else if (this.method == 'local') {
 
@@ -438,14 +448,19 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 
 					if (this.method == 'global') {
 						centralPoint = new THREE.Vector3(x, y, z);
-						leftPoint = new THREE.Vector3(x + this.width / 2 * Math.cos(currentHeading + Math.PI / 2), y + this.width / 2 * Math.sin(currentHeading + Math.PI / 2), z);
-						rightPoint = new THREE.Vector3(x + this.width / 2 * Math.cos(currentHeading - Math.PI / 2), y + this.width / 2 * Math.sin(currentHeading - Math.PI / 2), z);
+						// leftPoint = new THREE.Vector3(x + this.width / 2 * Math.cos(currentHeading + Math.PI / 2), y + this.width / 2 * Math.sin(currentHeading + Math.PI / 2), z);
+						// rightPoint = new THREE.Vector3(x + this.width / 2 * Math.cos(currentHeading - Math.PI / 2), y + this.width / 2 * Math.sin(currentHeading - Math.PI / 2), z);
 						
-
-						deltaZ = Math.tan(rollAngle) * this.width / 2;
+						// deltaZ = Math.tan(rollAngle) * this.width / 2;
+						
+						leftPoint = new THREE.Vector3(x + this.width / 2 * Math.cos(rollAngle) * Math.cos(currentHeading + Math.PI / 2), y + this.width / 2 * Math.cos(rollAngle) * Math.sin(currentHeading + Math.PI / 2), z);
+						rightPoint = new THREE.Vector3(x + this.width / 2 * Math.cos(rollAngle) * Math.cos(currentHeading - Math.PI / 2), y + this.width / 2 * Math.cos(rollAngle) * Math.sin(currentHeading - Math.PI / 2), z);
+						
+						deltaZ = Math.sin(rollAngle) * this.width / 2;
 						
 						if (s == this.length / 2) {
-							deltaZ = this.width / 2 * Math.tan(this.endSup);
+							// deltaZ = this.width / 2 * Math.tan(this.endSup);
+							deltaZ = this.width / 2 * Math.sin(this.endSup);
 						}
 
 						if (this.supAxis == 'central') {
@@ -468,8 +483,10 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 						tvector.applyAxisAngle(svector, rollAngle);
 
 						centralPoint = new THREE.Vector3(x, y, z);
-						leftPoint = tvector.clone().multiplyScalar(this.width / 2 / Math.cos(rollAngle)).add(centralPoint);
-						rightPoint = tvector.clone().multiplyScalar(-this.width / 2 / Math.cos(rollAngle)).add(centralPoint);
+						// leftPoint = tvector.clone().multiplyScalar(this.width / 2 / Math.cos(rollAngle)).add(centralPoint);
+						// rightPoint = tvector.clone().multiplyScalar(-this.width / 2 / Math.cos(rollAngle)).add(centralPoint);
+						leftPoint = tvector.clone().multiplyScalar(this.width / 2).add(centralPoint);
+						rightPoint = tvector.clone().multiplyScalar(-this.width / 2).add(centralPoint);
 					}
 
 					centralPoints.push(centralPoint);
@@ -510,18 +527,18 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 			planS0.multiplyScalar(this.startHandleScale);
 			planS1.multiplyScalar(this.endHandleScale);
 
-			var planCentralPoints = cubicHermitePoints(this.position.clone().setZ(0), planS0, this.nextPoint.clone().setZ(0), planS1, this.position.clone().setZ(0).distanceTo(this.nextPoint.clone().setZ(0)));
+			var planCentralPoints = cubicHermitePoints_subDivide(this.position.clone().setZ(0), planS0, this.nextPoint.clone().setZ(0), planS1, this.position.clone().setZ(0).distanceTo(this.nextPoint.clone().setZ(0)));
 			var planLength = customLineLength(planCentralPoints);
 
 			this.endHeading = planS1.angleTo(new THREE.Vector3(1,0,0)) * Math.sign(planS1.y);
 
-			this.nextPoint.z = this.position.z + (this.startSlope + this.endSlope) * planLength / 2;
+			if (!this.useEndZ) 
+				this.nextPoint.z = this.position.z + (this.startSlope + this.endSlope) * planLength / 2;
 
 			this.superelevation.a = this.startSup;
 			this.superelevation.b = 0;
 			this.superelevation.c = 3 * (this.endSup - this.startSup) / Math.pow(planLength, 2);
 			this.superelevation.d = -2 * (this.endSup - this.startSup) / Math.pow(planLength, 3);
-
 
 			s0 = new THREE.Vector3(1,0,this.startSlope).applyAxisAngle(zvector, this.heading).normalize();
 			// s1 = new THREE.Vector3().subVectors(this.nextPoint, this.position).normalize();
@@ -533,22 +550,25 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 			// central line
 			p0 = this.position.clone();
 			p1 = this.nextPoint.clone();
-			centralPoints = cubicHermitePoints(p0, s0, p1, s1, planLength / step);
+			centralPoints = cubicHermitePoints_subDivide(p0, s0, p1, s1, planLength / step);
 			// centralPoints = evenDistributePoints(centralPoints, step);
 
 			planS0.normalize();
 			planS1.normalize();
 
 			// left border
-			p0 = this.position.clone().add(new THREE.Vector3(0,1,0).applyAxisAngle(zvector, this.heading).applyAxisAngle(planS0, this.startSup).multiplyScalar(this.width / 2 / Math.cos(this.startSup)));
-			p1 = this.nextPoint.clone().add(new THREE.Vector3(0,1,0).applyAxisAngle(zvector, this.endHeading).applyAxisAngle(planS1, this.endSup).multiplyScalar(this.width / 2 / Math.cos(this.endSup)));
-			leftPoints = cubicHermitePoints(p0, s0, p1, s1, planLength / step);
+			// p0 = this.position.clone().add(new THREE.Vector3(0,1,0).applyAxisAngle(zvector, this.heading).applyAxisAngle(planS0, this.startSup).multiplyScalar(this.width / 2 / Math.cos(this.startSup)));
+			// p1 = this.nextPoint.clone().add(new THREE.Vector3(0,1,0).applyAxisAngle(zvector, this.endHeading).applyAxisAngle(planS1, this.endSup).multiplyScalar(this.width / 2 / Math.cos(this.endSup)));
+			p0 = this.position.clone().add(new THREE.Vector3(0,1,0).applyAxisAngle(zvector, this.heading).applyAxisAngle(planS0, this.startSup).multiplyScalar(this.width / 2));
+			p1 = this.nextPoint.clone().add(new THREE.Vector3(0,1,0).applyAxisAngle(zvector, this.endHeading).applyAxisAngle(planS1, this.endSup).multiplyScalar(this.width / 2));
+			leftPoints = cubicHermitePoints_subDivide(p0, s0, p1, s1, planLength / step);
 
 			// right border
-			p0 = this.position.clone().add(new THREE.Vector3(0,-1,0).applyAxisAngle(zvector, this.heading).applyAxisAngle(planS0, this.startSup).multiplyScalar(this.width / 2 / Math.cos(this.startSup)));
-			p1 = this.nextPoint.clone().add(new THREE.Vector3(0,-1,0).applyAxisAngle(zvector, this.endHeading).applyAxisAngle(planS1, this.endSup).multiplyScalar(this.width / 2 / Math.cos(this.endSup)));
-			rightPoints = cubicHermitePoints(p0, s0, p1, s1, planLength / step);
-
+			// p0 = this.position.clone().add(new THREE.Vector3(0,-1,0).applyAxisAngle(zvector, this.heading).applyAxisAngle(planS0, this.startSup).multiplyScalar(this.width / 2 / Math.cos(this.startSup)));
+			// p1 = this.nextPoint.clone().add(new THREE.Vector3(0,-1,0).applyAxisAngle(zvector, this.endHeading).applyAxisAngle(planS1, this.endSup).multiplyScalar(this.width / 2 / Math.cos(this.endSup)));
+			p0 = this.position.clone().add(new THREE.Vector3(0,-1,0).applyAxisAngle(zvector, this.heading).applyAxisAngle(planS0, this.startSup).multiplyScalar(this.width / 2));
+			p1 = this.nextPoint.clone().add(new THREE.Vector3(0,-1,0).applyAxisAngle(zvector, this.endHeading).applyAxisAngle(planS1, this.endSup).multiplyScalar(this.width / 2));
+			rightPoints = cubicHermitePoints_subDivide(p0, s0, p1, s1, planLength / step);
 
 			// left, right borders
 			// for (var i = 0; i < centralPoints.length; i++) {
@@ -588,8 +608,8 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 			p0 = centralPoints[centralPoints.length - 2];
 			p1 = centralPoints[centralPoints.length - 1];
 			var endSlope = Math.tan(Math.asin((p1.z - p0.z) / p1.distanceTo(p0)));
-			console.log((p1.z - p0.z), p1.distanceTo(p0))
-			console.log('hermite plan length ', planLength, '\nendSlope', endSlope);
+			// console.log((p1.z - p0.z), p1.distanceTo(p0))
+			// console.log('hermite plan length ', planLength, '\nendSlope', endSlope);
 
 			this.length = planLength;
 
@@ -616,9 +636,7 @@ TrackBuilder.Track.prototype.generateGeometry = function() {
 		// this.endPositionR = rightPoints[rightPoints.length - 1].clone();
 	}
 
-	this.endSuperelevation = this.endSup;
-
-	drawSphereAtPoint(this.endPositionC, 0.5)
+	// drawSphereAtPoint(this.endPositionC, 0.5)
 
 	this.centralPoints = centralPoints;
 	this.leftPoints = leftPoints;
@@ -703,9 +721,8 @@ TrackBuilder.Circuit = function() {
 	this.constructionPosition = new THREE.Vector3();
 	this.currentHeading = 0;
 	this.currentS = 0;
-	this.currentPitch = 0;
-	this.heightRate = 0;
-	this.superelevation = 0;
+	this.currentSlope = 0;
+	this.currentSup = 0;
 	this.tracks = [];
 	this.mesh = new THREE.Mesh();
 
@@ -713,6 +730,8 @@ TrackBuilder.Circuit = function() {
 
 	this.geometryMethod = 'global';	// 'global' - superelevation rotate around heading vector in x-y plane
 									// 'local'	- rotate around real forward vector (heading + slope)
+
+	this.planView = false;
 
 	this.build();
 	this.showBound();
@@ -728,7 +747,6 @@ TrackBuilder.Circuit.prototype.buildTrack = function(trackdata) {
 	trackdata.s = this.currentS;
 	trackdata.position = this.constructionPosition.clone();
 	trackdata.heading = this.currentHeading;
-	trackdata.heightRate = this.heightRate;
 	trackdata.method = this.geometryMethod;
 
 	var track = new TrackBuilder.Track(trackdata);
@@ -744,8 +762,8 @@ TrackBuilder.Circuit.prototype.buildTrack = function(trackdata) {
 	this.constructionPosition.set(track.endPositionC.x, track.endPositionC.y, track.endPositionC.z);
 	this.currentHeading = track.endHeading;
 	this.currentS = track.s + track.length;
-	this.superelevation = track.endSuperelevation;
-	this.heightRate = track.endSlope;
+	this.currentSup = track.endSup;
+	this.currentSlope = track.endSlope;
 };
 
 TrackBuilder.Circuit.prototype.undo = function() {
@@ -757,6 +775,13 @@ TrackBuilder.Circuit.prototype.undo = function() {
 		this.currentS = track.s;
 		this.superelevation = track.superelevation.a;
 		track.unbuild(this.mesh);
+	}
+};
+
+TrackBuilder.Circuit.prototype.clear = function(first_argument) {
+	// body...
+	while (this.tracks.length) {
+		this.undo();
 	}
 };
 
@@ -856,25 +881,56 @@ TrackBuilder.Circuit.prototype.exportOBJ = function() {
 	saveFile(obj, 'Circuit.obj');
 };
 
-TrackBuilder.Circuit.prototype.exportBorders = function() {
+TrackBuilder.Circuit.prototype.exportCentral = function(first_argument) {
 	// body...
 
-	var splines = [];
-	this.leftBorder = [];
-	this.rightBorder = [];
+	var content = "";
+	var turnCnt = 0, transitionCnt = 0;
+	var point;
+
+	var blenderMatrix = new THREE.Matrix3();
+	blenderMatrix.set(-1, 0, 0, 0, -1, 0, 0, 0, 1)
 
 	for (var i in this.tracks) {
-		// this.leftBorder = this.leftBorder.concat(this.tracks[i].leftPoints);
-		// this.rightBorder = this.rightBorder.concat(this.tracks[i].rightPoints);
-		this.leftBorder.push(this.tracks[i].leftPoints);
-		this.rightBorder.push(this.tracks[i].rightPoints);
-		splines.push(this.tracks[i].leftPoints);
-		splines.push(this.tracks[i].rightPoints);
+		
+		var track = this.tracks[i];
+		var preTrack = this.tracks[(i - 1 + this.tracks.length) % this.tracks.length];
+		var nextTrack = this.tracks[(i + 1) % this.tracks.length];
+
+		if (track.type == 'clothoidTurn') {
+			if (!(track.subtype == 'lastHalf' && track.startSup == track.endSup && preTrack.startSup == preTrack.endSup && track.endSup == preTrack.startSup)) {
+				content += "Turn " + (++turnCnt) + "\n";
+			}
+		} else if (track.type == 'hermite') {
+			content += "Transition " + (++transitionCnt) + "\n";
+		}
+
+		for (var j in track.centralPoints) {
+
+			// if (j == track.centralPoints.length - 1 &&
+			// 	track.endPositionC.x == nextTrack.position.x && 
+			// 	track.endPositionC.y == nextTrack.position.y && 
+			// 	track.endPositionC.z == nextTrack.position.z) {
+			// 	// console.log("track", i, "has proceeding track");
+			// 	continue;
+			// }
+
+			point = track.centralPoints[j].clone();
+
+			if (track.type != 'hermite') {
+				point.applyAxisAngle(zvector, track.heading);
+				point.add(track.position);
+			}
+
+			// drawSphereAtPoint(point, 0.2, 0xFF0000)
+
+			point.applyMatrix3(blenderMatrix);
+			
+			content += point.x + "," + point.y + "," + point.z + "\n";
+		}
 	}
 
-	var borders = {left: this.leftBorder, right: this.rightBorder};
-	saveFile(borders, 'LRBorders.json');
-	// saveFile(splines, 'Splines.json');
+	saveFile(content, 'Central.csv');
 };
 
 TrackBuilder.Circuit.prototype.superelevationInDegree = function() {
@@ -934,23 +990,85 @@ TrackBuilder.Circuit.prototype.buidFromControlPoints = function() {
 		var planLength = 0;
 
 		var ctrlPnt = this.ctrlPnts[i];
+		var prePnt = this.ctrlPnts[(i + this.ctrlPnts.length - 1) % this.ctrlPnts.length];
+		var nextPnt = this.ctrlPnts[(i + 1) % this.ctrlPnts.length];
 		drawSphereAtPoint(new THREE.Vector3(ctrlPnt.position.x, ctrlPnt.position.y, ctrlPnt.position.z), 1, 0xFF0000);
+		drawSphereAtPoint(this.constructionPosition, 1, 0xFF0000);
+		drawCustomLine([this.constructionPosition.clone(), new THREE.Vector3(ctrlPnt.position.x, ctrlPnt.position.y, ctrlPnt.position.z)])
 
 		var trackdata = new TrackBuilder.DefaultTrack2();
 
 		if (ctrlPnt.type == 'hermite'){
+			
 			trackdata.type = 'hermite';
 			trackdata.useEndVector = ctrlPnt.useEndVector;
-			var nextPosition = this.ctrlPnts[(i + 1) % this.ctrlPnts.length].position;
-			trackdata.nextPoint = new THREE.Vector3(nextPosition.x, nextPosition.y, nextPosition.z);
-			this.buildTrack(trackdata);			
-		} else {	
+			trackdata.nextPoint = new THREE.Vector3(nextPnt.position.x, nextPnt.position.y, nextPnt.position.z);
+			
+			if (!this.planView) {
+				trackdata.startSlope = ctrlPnt.endSlope;
+				trackdata.endSlope = nextPnt.startSlope;
+				trackdata.startSup = ctrlPnt.endSup * Math.PI / 180;
+				trackdata.endSup = nextPnt.startSup * Math.PI / 180;
+				trackdata.useEndZ = ctrlPnt.useEndZ;
+			}
+				
+			this.buildTrack(trackdata);	
+		
+		} else {
+
 			trackdata.length = ctrlPnt.length;
 			trackdata.halfwayRadius = ctrlPnt.radius;
-			this.buildTrack(trackdata);
+
+			if (!this.planView) {
+				if (ctrlPnt.midSlope  != undefined || ctrlPnt.midSup != undefined) {
+
+					if (ctrlPnt.midSup == undefined && ctrlPnt.startSup != ctrlPnt.endSup) {
+						throw Error('invalid control point: missing midSup')
+					}
+
+					trackdata.subtype = 'firstHalf';
+					trackdata.startSlope = ctrlPnt.startSlope;
+					trackdata.endSlope = ctrlPnt.midSlope;
+					trackdata.startSup = ctrlPnt.startSup * Math.PI / 180;
+					trackdata.endSup = ctrlPnt.midSup * Math.PI / 180 || ctrlPnt.startSup * Math.PI / 180 ;
+
+					this.buildTrack(trackdata);
+
+					trackdata.subtype = 'lastHalf';
+					trackdata.startSlope = ctrlPnt.midSlope;
+					trackdata.endSlope = ctrlPnt.endSlope;
+					trackdata.startSup = ctrlPnt.midSup * Math.PI / 180 || ctrlPnt.endSup * Math.PI / 180 ;
+					trackdata.endSup = ctrlPnt.endSup * Math.PI / 180 ;
+					trackdata.useEndZ = ctrlPnt.useEndZ;
+
+					this.buildTrack(trackdata);
+				}
+				
+				else {
+
+					trackdata.startSlope = ctrlPnt.startSlope;
+					trackdata.endSlope = ctrlPnt.endSlope;
+					trackdata.startSup = ctrlPnt.startSup * Math.PI / 180 ;
+					trackdata.endSup = ctrlPnt.endSup * Math.PI / 180 ;
+					trackdata.useEndZ = ctrlPnt.useEndZ;
+
+					this.buildTrack(trackdata);
+				}
+			} else {
+				this.buildTrack(trackdata);
+			}
+
 			trackdata.type = 'hermite';
-			var nextPosition = this.ctrlPnts[(i + 1) % this.ctrlPnts.length].position;
-			trackdata.nextPoint = new THREE.Vector3(nextPosition.x, nextPosition.y, nextPosition.z);
+			trackdata.nextPoint = new THREE.Vector3(nextPnt.position.x, nextPnt.position.y, nextPnt.position.z);
+			
+			if (!this.planView) {
+				trackdata.startSlope = ctrlPnt.endSlope;
+				trackdata.endSlope = nextPnt.startSlope;
+				trackdata.startSup = ctrlPnt.endSup * Math.PI / 180;
+				trackdata.endSup = nextPnt.startSup * Math.PI / 180;
+				trackdata.useEndZ = ctrlPnt.useEndZ;
+			}
+
 			this.buildTrack(trackdata);
 		}
 
@@ -1150,14 +1268,14 @@ TrackBuilder.UI = function(circuit) {
 		Close: ( function() { this.circuit.autoClose(); }.bind(this)),
 		Undo: ( function() { this.circuit.undo(); }.bind(this) ),
 		Export: ( function() {this.circuit.exportOBJ(); }.bind(this) ),
-		Borders: ( function() { this.circuit.exportBorders(); }.bind(this) ),
+		Central: ( function() { this.circuit.exportCentral(); }.bind(this) ),
 		View: 'Mesh',
 	}
 
 	this.gui.add(this.mainMenu, 'Line');
 	this.gui.add(this.mainMenu, 'Arc');
 	this.gui.add(this.mainMenu, 'Loop');
-	this.gui.add(this.mainMenu, 'Close');
+	//this.gui.add(this.mainMenu, 'Close');
 	this.gui.add(this.mainMenu, 'Undo');
 
 	this.boundFolder = this.gui.addFolder('Circuit Boundary');
@@ -1250,8 +1368,8 @@ TrackBuilder.UI = function(circuit) {
 		this.defaultArc.nextPoint = new THREE.Vector3(0,0,value);
 	}.bind(this));
 	this.configFolder.add(this.configMenu, 'useEndZ').onChange(function(value) {
-		this.defaultLine.useEndPosition = value;
-		this.defaultArc.useEndPosition = value;
+		this.defaultLine.useEndZ = value;
+		this.defaultArc.useEndZ = value;
 	}.bind(this));
 	
 
@@ -1278,13 +1396,13 @@ TrackBuilder.UI = function(circuit) {
 		}
 	}.bind(this));
 
-	this.gui.add(this.mainMenu, 'View', ['Mesh', 'Line']).onChange(function(value) {
-		if (value == 'Mesh') this.circuit.showMesh();
-		if (value == 'Line') this.circuit.hideMesh();
-	}.bind(this));
+	// this.gui.add(this.mainMenu, 'View', ['Mesh', 'Line']).onChange(function(value) {
+	// 	if (value == 'Mesh') this.circuit.showMesh();
+	// 	if (value == 'Line') this.circuit.hideMesh();
+	// }.bind(this));
 
 	this.gui.add(this.mainMenu, 'Export');
-	this.gui.add(this.mainMenu, 'Borders');
+	this.gui.add(this.mainMenu, 'Central');
 }
 
 TrackBuilder.kartUI = function(circuit) {
@@ -1387,7 +1505,7 @@ TrackBuilder.hermiteUI = function(circuit) {
 		Hermite: ( function() { this.circuit.buildTrack(this.transition); }.bind(this) ),
 		Undo: ( function() { this.circuit.undo(); }.bind(this) ),
 		Export: ( function() { this.circuit.exportOBJ(); }.bind(this) ),
-		Borders: ( function() { this.circuit.exportBorders(); }.bind(this) ),
+		Central: ( function() { this.circuit.exportCentral(); }.bind(this) ),
 	}
 	this.gui.add(this.mainMenu, 'Turn');
 	this.gui.add(this.mainMenu, 'Hermite');
@@ -1444,8 +1562,7 @@ TrackBuilder.hermiteUI = function(circuit) {
 		this.circuit.geometryMethod = value;
 	}.bind(this));
 
-	this.configFolder = this.gui.addFolder('Config Menu');
-	this.configFolder.open();
+	this.configFolder = this.gui.addFolder('Custom Configurations');
 	this.configMenu = {
 		width: 11,
 		fullTurnLength: 78.5,
@@ -1461,7 +1578,7 @@ TrackBuilder.hermiteUI = function(circuit) {
 		startSup: 0,
 		endSup: 0,
 		supAxis: 'central',
-		useEndPosition: false,
+		useEndZ: false,
 		useEndVector: false,
 		endHeading: 0,
 		endDetail: false,
@@ -1488,8 +1605,9 @@ TrackBuilder.hermiteUI = function(circuit) {
 	this.configFolder.add(this.configMenu, 'nextPoint_Z').step(0.0000000000001).onChange(function(value) {
 		this.transition.nextPoint.z = value;
 	}.bind(this));
-	this.configFolder.add(this.configMenu, 'useEndPosition').onChange(function(value) {
-		this.turn.useEndPosition = value;
+	this.configFolder.add(this.configMenu, 'useEndZ').onChange(function(value) {
+		this.turn.useEndZ = value;
+		this.transition.useEndZ = value;
 	}.bind(this));
 	this.configFolder.add(this.configMenu, 'endHeading').onChange(function(value) {
 		var radian = value * Math.PI / 180;
@@ -1511,6 +1629,7 @@ TrackBuilder.hermiteUI = function(circuit) {
 	this.configFolder.add(this.configMenu, 'endSlope').step(0.0000000000000001).onChange(function(value) {
 		this.turn.endSlope = value;
 		this.transition.endSlope = value;
+		var radian = this.configMenu.endHeading * Math.PI / 180;
 		this.transition.endVector = new THREE.Vector3(1, 0, this.transition.endSlope).applyAxisAngle(zvector, radian).normalize();
 	}.bind(this));
 	this.configFolder.add(this.configMenu, 'startSup').step(0.01).onChange(function(value) {
@@ -1534,13 +1653,13 @@ TrackBuilder.hermiteUI = function(circuit) {
 	}.bind(this));
 
 	this.gui.add(this.mainMenu, 'Export');
-	this.gui.add(this.mainMenu, 'Borders');
+	this.gui.add(this.mainMenu, 'Central');
 }
 
-var circuit = new TrackBuilder.Circuit();
-var ui = new TrackBuilder.UI(circuit);
+// var circuit = new TrackBuilder.Circuit();
+// var ui = new TrackBuilder.UI(circuit);
 // var kartUI = new TrackBuilder.kartUI(circuit);
-var hermiteUI = new TrackBuilder.hermiteUI(circuit);
+// var hermiteUI = new TrackBuilder.hermiteUI(circuit);
 
 // circuit.readCtrlPnts('../data/controlPoints_hermite.json');
 // circuit.buidFromControlPoints();
@@ -1550,51 +1669,10 @@ var hermiteUI = new TrackBuilder.hermiteUI(circuit);
 
 var p0 = new THREE.Vector3();
 var v0 = new THREE.Vector3(1,0,0);
-var p1 = new THREE.Vector3(10, 10, 0);
-var v1 = new THREE.Vector3(1,1,0).normalize();
-var points = cubicHermitePoints(p0, v0, p1, v1);
+var p1 = new THREE.Vector3(5, 5, 0);
+var v1 = new THREE.Vector3(1,0,0).normalize();
+// var points = cubicHermitePoints(p0, v0, p1, v1);
 // drawCustomLine(points, 0xFF0000)
-points = cubicHermitePoints(p0, v0, p1, v1, p0.distanceTo(p1))
+// points = cubicHermitePoints_subDivide(p0, v0, p1, v1, p0.distanceTo(p1))
 // drawCustomLine(points)
-
-function helper(circuit, end, length) {
-
-	var leftPoints = [];
-	var centralPoints = [];
-	var rightPoints = [];
-	var leftPiont, centralPoint, rightPoint;
-
-	var step = 1;
-	var s = 0;
-	var lastTrack = circuit.tracks[circuit.tracks.length - 1];
-	var elevationL = generateCubicPolynomial(0, 0, 0, length, end.z - lastTrack.endPositionL.z);
-	var elevationC = generateCubicPolynomial(0, 0, 0, length, end.z - lastTrack.endPositionC.z);
-	var elevationR = generateCubicPolynomial(0, 0, 0, length, end.z - lastTrack.endPositionR.z);
-
-	do {
-
-		if (Math.abs(s - length) < 1E-4 || s > length) s = length;
-
-		// left border
-		leftPoint = new THREE.Vector3(s, 5.5, cubicPolynomial(s, elevationL));
-
-		// central
-		centralPoint = new THREE.Vector3(s, 0, cubicPolynomial(s, elevationC));
-
-		// right
-		rightPoint = new THREE.Vector3(s, -5.5, cubicPolynomial(s, elevationR));
-
-		s += step;
-
-		leftPoints.push(leftPoint);
-		rightPoints.push(rightPoint);
-		centralPoints.push(centralPoint);
-
-	} while (s < length + step);
-
-	var geometry = createCustomFaceGeometry(leftPoints, rightPoints);
-	var material = lastTrack.material;
-	var mesh = new THREE.Mesh(geometry, material);
-	mesh.position.set(circuit.constructionPosition.x, circuit.constructionPosition.y, circuit.constructionPosition.z ) ;
-	circuit.mesh.add(mesh);
-}
+// console.log(points)

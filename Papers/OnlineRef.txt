@@ -2,3 +2,10 @@ Online Ref:
 
 The Clothoid
 https://pwayblog.com/2016/07/03/the-clothoid/
+
+Roads or Traffic Simulation:
+Sumo (simulation of urban mobility):
+http://www.dlr.de/ts/en/desktopdefault.aspx/tabid-9883/16931_read-41000/
+
+Paths and Roads:
+https://www.carsim.com/products/paths_roads/index.php

@@ -87,7 +87,7 @@ THREE.OBJExporter.prototype = {
 
 					for ( i = 0, l = uvs.count; i < l; i ++, nbVertexUvs++ ) {
 
-						uv.x = uvs.getX( i );
+						uv.x = self.engineMatrix3.elements[0] * uvs.getX( i );
 						uv.y = uvs.getY( i );
 
 						// transform the uv to export format

@@ -61,6 +61,16 @@ function init() {
 
 	/** Setting up controls */
 	controls = new THREE.OrbitControls(camera, renderer.domElement);
+	// controls = new THREE.TrackballControls(camera);
+	// controls.rotateSpeed = 2.0;
+	// controls.zoomSpeed = 1.2;
+	// controls.panSpeed = 0.8;
+	// controls.noZoom = false;
+	// controls.noPan = false;
+	// controls.staticMoving = true;
+	// controls.dynamicDampingFactor = 0.3;
+	// controls.keys = [ 65, 83, 68 ];
+	// controls.addEventListener( 'change', render );
 
 	/** Setting up Stats */
 	stats = new Stats();
@@ -72,6 +82,11 @@ function init() {
 	/** Setting up GUI */
 	//initGUI();
 
+	/** Setting up raycaster */
+	raycaster = new THREE.Raycaster();
+	mouse = new THREE.Vector2();
+	document.addEventListener( 'mousemove', onDocumentMouseMove, false );
+
 	if (map) test();
 }
 
@@ -79,17 +94,21 @@ function animate() {
 	requestAnimationFrame(animate);
 	render();
 	stats.update();
+	controls.update();
 }
 
 function render() {
-	
-	if (raycaster) {
-		raycaster.setFromCamera(mouse, camera);
-		var intersects = raycaster.intersectObject();
-		for ( var i = 0; i < intersects.length; i++ ) {
-			intersects[ i ].object.material.color.set( 0xFF0000 );
-		}
-	}
+
+	raycaster.setFromCamera( mouse, camera );
+
+	// var intersects = raycaster.intersectObject( scene.children );
+
+	// if ( intersects.length > 0 ) {
+	// 	var intersect = intersects[ 0 ];
+	// 	var face = intersect.face;
+
+	// 	console.log(intersect)
+	// }
 
 	renderer.render( scene, camera );
 }
@@ -2353,10 +2372,14 @@ function createCustomFaceGeometry(lBorderPoints, rBorderPoints)  {
 
 	var geometry = new THREE.BufferGeometry();
 	var vertices = [];
+	var uvs = [];
 	var index = [];
 
 	vertices = vertices.concat([rBorderPoints[0].x, rBorderPoints[0].y, rBorderPoints[0].z]);
 	vertices = vertices.concat([lBorderPoints[0].x, lBorderPoints[0].y, lBorderPoints[0].z]);
+
+	uvs = uvs.concat(1, 0)
+	uvs = uvs.concat(0, 0)
 
 	// start from iBorder's first point, each loop draw 2 triangles representing the quadralateral iBorderP[i], iBorderP[i+1], oBorder[i+1], oBorder[i] 
 	for (var i = 0; i < Math.min(lBorderPoints.length, rBorderPoints.length) - 1; i++) {
@@ -2374,6 +2397,9 @@ function createCustomFaceGeometry(lBorderPoints, rBorderPoints)  {
 		vertices = vertices.concat([lBorderPoints[i + 1].x, lBorderPoints[i + 1].y, lBorderPoints[i + 1].z]);
 
 		index = index.concat([2 * i, 2 * i + 2, 2 * i + 3, 2 * i, 2 * i + 3, 2 * i + 1]);
+
+		uvs = uvs.concat(1, (i + 1) / Math.max(lBorderPoints.length, rBorderPoints.length))
+		uvs = uvs.concat(0, (i + 1) / Math.max(lBorderPoints.length, rBorderPoints.length))
 	}
 
 	if (lBorderPoints.length < rBorderPoints.length) {
@@ -2390,9 +2416,10 @@ function createCustomFaceGeometry(lBorderPoints, rBorderPoints)  {
 		for (var i = 0; i < rBorderPoints.length - lBorderPoints.length; i++) {
 			vertices = vertices.concat([rBorderPoints[lBorderPoints.length + i].x, rBorderPoints[lBorderPoints.length + i].y, rBorderPoints[lBorderPoints.length + i].z]);
 			index = index.concat([lIndex, lIndex - 1, lIndex + i + 1]);
+
+			uvs = uvs.concat(1, (lBorderPoints.length + i) / Math.max(lBorderPoints.length, rBorderPoints.length))
 		}
 	}
-
 
 	if (lBorderPoints.length > rBorderPoints.length) {
 
@@ -2408,13 +2435,17 @@ function createCustomFaceGeometry(lBorderPoints, rBorderPoints)  {
 		for (var i = 0; i < lBorderPoints.length - rBorderPoints.length; i++) {
 			vertices = vertices.concat([lBorderPoints[rBorderPoints.length + i].x, lBorderPoints[rBorderPoints.length + i].y, lBorderPoints[rBorderPoints.length + i].z]);
 			index = index.concat([rIndex, rIndex + 1 + i + 1, rIndex + 1 + i]);
+
+			uvs = uvs.concat(1, (rBorderPoints.length + i) / Math.max(lBorderPoints.length, rBorderPoints.length))
 		}
 	}
 
 	vertices = Float32Array.from(vertices);
+	uvs = Float32Array.from(uvs);
 	index = Uint32Array.from(index);
 	// itemSize = 3 becuase there are 3 values (components) per vertex
 	geometry.addAttribute('position', new THREE.BufferAttribute(vertices, 3));
+	geometry.addAttribute('uv', new THREE.BufferAttribute(uvs, 2));
 	geometry.setIndex(new THREE.BufferAttribute(index, 1));
 	// geometry.computeVertexNormals();
 
@@ -6191,4 +6222,21 @@ function test() {
 
 	var mesh = new THREE.Mesh(new THREE.SphereBufferGeometry(5, 32, 32));
 	isWithinMesh(mesh);
+
+	var loader = new THREE.ObjectLoader();
+	// loader.load('../data/circle_UV.json', addToScene);
+	function addToScene(geometry, materials) {
+		var material = new THREE.MeshFaceMaterial(materials);
+		model = new THREE.Mesh( geometry, material );
+		model.scale.set(0.5,0.5,0.5);
+		scene.add( model );
+	}
+
+	var loader = new THREE.ObjectLoader();
+	loader.load("../data/circle_UV.json", 
+	    function ( obj ) {
+	        scene.add( obj );
+	    }   
+	);
+
 }

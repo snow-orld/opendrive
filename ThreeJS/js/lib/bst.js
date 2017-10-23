@@ -34,7 +34,7 @@ BinarySearchTree.Node.prototype.getRight = function() {
 
 BinarySearchTree.Node.prototype.getChildrenCnt = function() {
 	// body...
-	
+	return this.childrenCnt;
 };
 
 BinarySearchTree.prototype.search = function(value) {
@@ -66,13 +66,14 @@ BinarySearchTree.prototype.insert = function(value) {
 		if (node == null) {
 			node = new this.Node(value);
 			node.parent = parent;
+			return true;
 		} else {
 			if (value < node.value) {
-				insertHelper(value, node.left, node);
 				node.childrenCnt++;
+				return insertHelper(value, node.left, node);
 			} else if (value > node.value) {
-				insertHelper(value, node.right, node);
 				node.childrenCnt++;
+				return insertHelper(value, node.right, node);
 			} else {
 				return false;
 			}
@@ -80,10 +81,50 @@ BinarySearchTree.prototype.insert = function(value) {
 
 	}
 
-	this.count++;
+	if (!insertHelper(value, this.node, null)) {
+		this.count++;
+	}
 };
 
 BinarySearchTree.prototype.delete = function(value) {
 	// body...
 
+	function deleteHelper(value, node) {
+
+		var deleted = false;
+
+		if (node == null) {
+			return deleted;
+		} else {
+			if (value < node.value) {
+				deleted = deleteHelper(value, node.left);
+				if (deleted) {
+					node.childrenCnt--;
+				}
+				return deleted;
+			} else if (value > node.value) {
+				deleted = deleteHelper(value, node.right);
+				if (deleted) {
+					node.childrenCnt--;
+				}
+				return deleted;
+			} else {
+
+				if (node.left == null && node.right == null) {
+					node = null;
+				} else if (node.left == null) {
+					node.right.parent = node.parent;
+					node = node.right;
+				} else if (node.right == null) {
+					node.left.parent = node.parent;
+					node = node.left;
+				} else {
+
+				}
+
+				deleted = true;
+				return deleted;
+			}
+		}
+	}
 };
