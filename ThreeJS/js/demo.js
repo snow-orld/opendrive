@@ -80,7 +80,7 @@ function init() {
 	window.addEventListener( 'resize', onWindowResize, false );
 
 	/** Setting up GUI */
-	//initGUI();
+	initGUI();
 
 	/** Setting up raycaster */
 	raycaster = new THREE.Raycaster();
@@ -6233,10 +6233,11 @@ function test() {
 	}
 
 	var loader = new THREE.ObjectLoader();
+	/*
 	loader.load("../data/circle_UV.json", 
 	    function ( obj ) {
 	        scene.add( obj );
 	    }   
 	);
-
+	*/
 }
