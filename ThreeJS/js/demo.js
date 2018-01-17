@@ -7,7 +7,7 @@ var maxTOffset = 10;	// maximum offset distance from central geometry
 
 var group = {road: [], roadMark: [], referenceLine: [], signal: []};	// remember added mesh for GUI to hide mesh
 var roadsMesh = {};		// store mesh of road only by road Id, use for generating bb and exporting to .obj by road
-var targetEngineMatrix = new THREE.Matrix3();	// make sure the targe engine's axis is coherent with openDirve's
+var targetEngineMatrix = new THREE.Matrix3();	// make sure the target engine's axis is coherent with openDirve's
 
 //var map;
 var map = parseXML("../data/Crossing8Course.xodr");
@@ -80,7 +80,7 @@ function init() {
 	window.addEventListener( 'resize', onWindowResize, false );
 
 	/** Setting up GUI */
-	initGUI();
+	// initGUI();
 
 	/** Setting up raycaster */
 	raycaster = new THREE.Raycaster();
@@ -4998,6 +4998,22 @@ function initGUI() {
 			exportOBJ(group.roadMark, viewer.mapName + '_roadMark_' + exporter.targetEngine + '.obj');
 			exportOBJ(group.signal, viewer.mapName + '_signal_' + exporter.targetEngine + '.obj');
 		}),
+		saveRefLine: (function() {
+			// traverse all reference lines' geometry vertices and save them in some order
+			var mesh, vertices, vertex;
+			var output = [];
+			for (var i = 0; i < group.referenceLine.length; i++) {
+				mesh = group.referenceLine[i];
+				vertices = mesh.geometry.vertices;
+				for (var j = 0; j < vertices.length; j++) {
+					vertex = vertices[j];
+					vertex.applyMatrix3(targetEngineMatrix);
+					output.push(vertex);
+				}
+			}
+			console.log('Why the list output cannot be saved? No downloading happens after pressing saveRefLine Button?!');
+			saveFile(output, 'referenceLine.json');
+		}),
 		targetEngine: 'THREE.js',
 	}
 
@@ -5010,6 +5026,7 @@ function initGUI() {
 	mapExporter = gui.addFolder('Map Exporter');
 	mapExporter.add(exporter, 'saveAsJSON');
 	mapExporter.add(exporter, 'saveAsOBJ');
+	mapExporter.add(exporter, 'saveRefLine');
 	mapExporter.add(exporter, 'targetEngine', ['THREE.js', 'Unity', 'UnrealEngine', 'Blender']).onChange( function(value) {
 		if (value == 'Unity') {
 			// In Unity, make sure x points to the east, z points to the north, y points up to the sky

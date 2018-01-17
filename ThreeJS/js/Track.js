@@ -1656,10 +1656,10 @@ TrackBuilder.hermiteUI = function(circuit) {
 	this.gui.add(this.mainMenu, 'Central');
 }
 
-// var circuit = new TrackBuilder.Circuit();
-// var ui = new TrackBuilder.UI(circuit);
-// var kartUI = new TrackBuilder.kartUI(circuit);
-// var hermiteUI = new TrackBuilder.hermiteUI(circuit);
+var circuit = new TrackBuilder.Circuit();
+var ui = new TrackBuilder.UI(circuit);
+var kartUI = new TrackBuilder.kartUI(circuit);
+var hermiteUI = new TrackBuilder.hermiteUI(circuit);
 
 // circuit.readCtrlPnts('../data/controlPoints_hermite.json');
 // circuit.buidFromControlPoints();
