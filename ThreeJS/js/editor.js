@@ -147,7 +147,7 @@ MapBuilder.Lane.prototype.pave = function(roadMesh, innerGeometry) {
 
 	if (this.id == 0) {
 		// width and border is not allowed for center lane. center lane only needs to draw the mark
-		this.drawRoadMark(roadMesh, innerGeometry);
+		this.drawRoadMark(this.id, roadMesh, innerGeometry);
 
 		switch(innerGeometry.type) {
 			case 'line':
@@ -254,13 +254,13 @@ MapBuilder.Lane.prototype.pave = function(roadMesh, innerGeometry) {
 	var baseMesh = new THREE.Mesh(laneBase, new THREE.MeshBasicMaterial({color: color}));
 	roadMesh.add(baseMesh);
 
-	this.drawRoadMark(roadMesh, oGeometry);
+	this.drawRoadMark(this.id, roadMesh, oGeometry);
 
 	return oGeometry;
 
 };
 
-MapBuilder.Lane.prototype.drawRoadMark = function(roadMesh, outerGeometry) {
+MapBuilder.Lane.prototype.drawRoadMark = function(laneId, roadMesh, outerGeometry) {
 	// body...
 
 	if (!this.roadMark) return;
@@ -563,7 +563,7 @@ MapBuilder.Road.prototype.generateAllLanes = function() {
 					currentLane.push(j + 1);
 				}
 			} catch(e) {
-				console.info('paving error: road#' + road.id + ' lane#' + leftLanes[j].id);
+				console.info('paving error: road# ? '+ ' lane#' + leftLanes[j].id);
 				console.error(e.stack)
 			}
 		}
@@ -584,16 +584,16 @@ MapBuilder.Road.prototype.generateAllLanes = function() {
 				currentLane.pop();
 			}
 
-			// try {
+			try {
 				var oGeometry = this.generateLane(innerGeometry, rightLanes[j]);
 				if (j != rightLanes.length - 1) {
 					innerGeometries.push(oGeometry);
 					currentLane.push(j + 1);
 				}
-			// } catch(e) {
-			// 	console.info('paving error: road#' + road.id + ' lane#' + rightLanes[j].id);
-			// 	console.error(e.stack)
-			// }
+			} catch(e) {
+				console.info('paving error: road# ? ' + ' lane#' + rightLanes[j].id);
+				console.error(e.stack)
+			}
 		}
 	}
 
@@ -601,7 +601,7 @@ MapBuilder.Road.prototype.generateAllLanes = function() {
 	try {
 		this.generateLane(this.geometryRaw, centralLane);
 	} catch(e) {
-		console.info('paving error: road#' + road.id + ' lane#' + centralLane.id);
+		console.info('paving error: road# ? ' + ' lane#' + centralLane.id);
 		console.error(e.stack)
 	}
 
@@ -809,9 +809,9 @@ MapBuilder.Map.prototype.exportJSON = function() {
 			this.json.lane_vertical_markings[verticalLaneMarkID] = {};
 			this.json.lane_vertical_markings[verticalLaneMarkID].id = verticalLaneMarkID;
 			if (roadMark.color == 'yellow')
-				this.json.lane_vertical_markings[verticalLaneMarkID].color = [255, 215, 0]
+				this.json.lane_vertical_markings[verticalLaneMarkID].color = 1;	// 1 for yellow
 			else
-				this.json.lane_vertical_markings[verticalLaneMarkID].color = [255, 255, 255]
+				this.json.lane_vertical_markings[verticalLaneMarkID].color = 0; // 0 for white
 			if (roadMark.type == 'broken')
 				this.json.lane_vertical_markings[verticalLaneMarkID].type = 0;	
 			if (roadMark.type == 'solid')
